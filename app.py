@@ -22,115 +22,190 @@ st.set_page_config(
 )
 
 # ─── CSS ──────────────────────────────────────────────────────────────────────
+# Tirkizna paleta · Mobile-first · Forsiran light mode
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; }
-
+/* ── Globalno ── */
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif !important;
+    color-scheme: light !important;
+}
 #MainMenu, footer { visibility: hidden; }
 
-/* Sidebar */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #1a3a8f 0%, #0f2260 100%) !important;
+/* ── Pozadina ── */
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="block-container"] {
+    background-color: #EEF6F8 !important;
 }
-[data-testid="stSidebar"] * { color: white !important; }
-[data-testid="stSidebar"] .stRadio > label { color: white !important; }
-[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.2) !important; }
+
+/* ── Sidebar — tirkizni gradijent ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0D8A9E 0%, #0A6B7C 100%) !important;
+}
+[data-testid="stSidebar"] * { color: #FFFFFF !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.25) !important; }
 [data-testid="stSidebar"] button {
-    background: rgba(255,255,255,0.15) !important;
+    background: rgba(255,255,255,0.18) !important;
     color: white !important;
-    border: 1px solid rgba(255,255,255,0.25) !important;
+    border: 1px solid rgba(255,255,255,0.3) !important;
     border-radius: 10px !important;
 }
 [data-testid="stSidebar"] button:hover {
-    background: rgba(255,255,255,0.25) !important;
+    background: rgba(255,255,255,0.3) !important;
 }
 
-/* Main background */
-.stApp { background: #f0f4f8; }
-[data-testid="stAppViewContainer"] > .main { background: #f0f4f8; }
-
-/* Buttons */
+/* ── Dugmad ── */
 .stButton > button {
-    border-radius: 10px !important;
+    border-radius: 12px !important;
     font-weight: 600 !important;
-    transition: all 0.2s !important;
-    font-family: 'Inter', sans-serif !important;
+    font-size: 15px !important;
+    padding: 10px 20px !important;
+    transition: all 0.2s ease !important;
+    color: white !important;
 }
 .stButton > button:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 14px rgba(26,58,143,0.25) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 18px rgba(28,181,197,0.35) !important;
 }
-button[kind="primary"] {
-    background: linear-gradient(135deg, #1a3a8f, #2563eb) !important;
+[data-testid="baseButton-primary"] {
+    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
     border: none !important;
+    color: white !important;
+}
+[data-testid="baseButton-secondary"] {
+    background: white !important;
+    border: 2px solid #1CB5C5 !important;
+    color: #0D8A9E !important;
 }
 
-/* Inputs */
-.stTextInput > div > div > input {
-    border-radius: 10px !important;
-    border: 1.5px solid #e2e8f0 !important;
-    font-family: 'Inter', sans-serif !important;
-    padding: 10px 14px !important;
+/* ── Input polja — bijela pozadina, vidljiv tekst ── */
+.stTextInput > div > div > input,
+.stTextInput > div > div > input::placeholder {
+    background-color: #FFFFFF !important;
+    color: #1A2E3B !important;
+    border-radius: 12px !important;
+    border: 1.5px solid #B2DDE4 !important;
+    font-size: 15px !important;
+    padding: 11px 14px !important;
 }
+.stTextInput > div > div > input::placeholder { color: #8BAAB2 !important; }
 .stTextInput > div > div > input:focus {
-    border-color: #1a3a8f !important;
-    box-shadow: 0 0 0 3px rgba(26,58,143,0.1) !important;
+    border-color: #1CB5C5 !important;
+    box-shadow: 0 0 0 3px rgba(28,181,197,0.15) !important;
+    outline: none !important;
 }
 
-/* Selectbox */
+/* ── Selectbox ── */
 .stSelectbox > div > div {
-    border-radius: 10px !important;
-    border: 1.5px solid #e2e8f0 !important;
+    background: white !important;
+    border-radius: 12px !important;
+    border: 1.5px solid #B2DDE4 !important;
 }
 
-/* Tabs */
+/* ── Tabs ── */
 .stTabs [data-baseweb="tab-list"] {
-    background: white;
-    border-radius: 12px;
-    padding: 4px;
-    gap: 4px;
+    background: white !important;
+    border-radius: 14px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
 }
 .stTabs [data-baseweb="tab"] {
-    border-radius: 8px !important;
+    border-radius: 10px !important;
     font-weight: 500 !important;
+    color: #5A8A96 !important;
+    font-size: 14px !important;
 }
 .stTabs [aria-selected="true"] {
-    background: #1a3a8f !important;
+    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
     color: white !important;
 }
 
-/* Chat */
+/* ── Upozorenja — forsiran kontrast ── */
+[data-testid="stAlert"] {
+    border-radius: 12px !important;
+    border-width: 1.5px !important;
+}
+[data-testid="stAlert"][data-baseweb="notification"] {
+    background-color: #FFF8E1 !important;
+}
+/* Warning — tamni tekst na žutoj pozadini */
+div[data-testid="stAlert"] p,
+div[data-testid="stAlert"] span,
+div[data-testid="stAlert"] div {
+    color: #5C4000 !important;
+    font-weight: 500 !important;
+}
+/* Success — zelena */
+.stSuccess { background-color: #E8F8F0 !important; }
+.stSuccess * { color: #1A5C38 !important; }
+/* Info — tirkizna */
+.stInfo { background-color: #E0F4F7 !important; }
+.stInfo * { color: #0A4A54 !important; }
+/* Error — crvena */
+.stError { background-color: #FDE8E8 !important; }
+.stError * { color: #8B0000 !important; }
+
+/* ── Chat poruke ── */
 [data-testid="stChatMessage"] {
-    border-radius: 14px !important;
-    margin-bottom: 8px !important;
-}
-
-/* Metrics */
-[data-testid="metric-container"] {
+    border-radius: 16px !important;
+    margin-bottom: 10px !important;
     background: white !important;
-    border-radius: 12px !important;
-    padding: 16px !important;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.07) !important;
-}
-
-/* Alerts */
-[data-testid="stAlert"] { border-radius: 12px !important; }
-
-/* Expander */
-[data-testid="stExpander"] {
-    background: white !important;
-    border-radius: 12px !important;
-    border: none !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
 }
 
-/* Chat input */
+/* ── Chat input ── */
 [data-testid="stChatInput"] > div {
-    border-radius: 14px !important;
-    border: 1.5px solid #e2e8f0 !important;
+    border-radius: 16px !important;
+    border: 2px solid #B2DDE4 !important;
     background: white !important;
+}
+[data-testid="stChatInput"] > div:focus-within {
+    border-color: #1CB5C5 !important;
+    box-shadow: 0 0 0 3px rgba(28,181,197,0.12) !important;
+}
+
+/* ── Metric kartice ── */
+[data-testid="metric-container"] {
+    background: white !important;
+    border-radius: 14px !important;
+    padding: 18px !important;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.07) !important;
+    border-top: 3px solid #1CB5C5 !important;
+}
+[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    color: #0D8A9E !important;
+    font-weight: 800 !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: white !important;
+    border-radius: 14px !important;
+    border: 1.5px solid #D4EEF2 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important;
+}
+
+/* ── Divider ── */
+hr { border-color: #D4EEF2 !important; }
+
+/* ── Form ── */
+[data-testid="stForm"] {
+    background: white !important;
+    border-radius: 16px !important;
+    padding: 20px !important;
+    border: 1.5px solid #D4EEF2 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+}
+
+/* ── Mobile optimizacija ── */
+@media (max-width: 768px) {
+    [data-testid="block-container"] { padding: 12px !important; }
+    .stButton > button { font-size: 14px !important; padding: 10px 16px !important; }
 }
 </style>
 """, unsafe_allow_html=True)

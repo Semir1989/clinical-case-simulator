@@ -1,22 +1,23 @@
 """
 Clinical Case Simulator — Edu Pharma Community
-Faze 4, 5, 6: Streamlit interfejs + Evaluator + Prompt caching + Disclaimer
+Faze 4-6 + Auth + Limit poteza + Auto-evaluacija
 """
 
 import json
-import sys
 import os
 import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-# Lokalno: čita iz .env — na Streamlit Cloud: čita iz st.secrets
+# ─── API ključ ────────────────────────────────────────────────────────────────
 try:
     os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 except Exception:
     load_dotenv()
 
 client = Anthropic()
+
+MAX_POTEZA = 7  # maksimalan broj unosa farmaceuta
 
 # ─── Scenariji ────────────────────────────────────────────────────────────────
 SCENARIJI = {
@@ -46,43 +47,43 @@ SCENARIJI = {
 }
 
 RUBRIKA = """
-## Rubrika za ocjenjivanje (svaka kategorija 0–10)
+Rubrika za ocjenjivanje (svaka kategorija 0-10):
 
-### Anamneza (težina 0.4)
+ANAMNEZA (tezina 0.4):
 - Pitao za trajanje tegobe (2 boda)
-- Pitao šta već koristi i koliko dugo (2 boda)
-- Pitao o trudnoći / posebnim stanjima (2 boda)
+- Pitao sta vec koristi i koliko dugo (2 boda)
+- Pitao o trudnoci / posebnim stanjima (2 boda)
 - Pitao za alergije (2 boda)
 - Prepoznao crvene zastavice iz odgovora (2 boda)
-> Kazna: ako nije pitao o trudnoći → max 4/10. Ako nije pitao šta koristi → max 6/10.
+KAZNA: ako nije pitao o trudnoci -> max 4/10. Ako nije pitao sta koristi -> max 6/10.
 
-### Komunikacija (težina 0.3)
+KOMUNIKACIJA (tezina 0.3):
 - Koristio razumljiv jezik laika (2 boda)
-- Empatičan ton, bez osuđivanja (2 boda)
+- Empatican ton, bez osudjivanja (2 boda)
 - Provjerio da li je pacijent razumio (2 boda)
-- Strukturisan, logičan tok razgovora (2 boda)
+- Strukturisan, logican tok razgovora (2 boda)
 - Jasno prenio poruku o prekinutoj terapiji i odlasku ljekaru (2 boda)
 
-### Sigurnost preporuke (težina 0.3)
+SIGURNOST (tezina 0.3):
 - Odbio izdati Clobetasol bez recepta trudnici (3 boda)
 - Rekao da oba preparata treba odmah prekinuti (3 boda)
-- Nije preporučio zamjensku terapiju bez pregleda (2 boda)
+- Nije preporucio zamjensku terapiju bez pregleda (2 boda)
 - Uputio na pregled — ginekolog i/ili dermatolog (2 boda)
-> Kazna: ako je izdao kortikosteroid trudnici → 0/10 za Sigurnost.
+KAZNA: ako je izdao kortikosteroid trudnici -> 0/10 za Sigurnost.
 """
 
-# ─── Gradnja system prompta sa prompt cachingom ───────────────────────────────
+# ─── System prompt sa prompt cachingom ───────────────────────────────────────
 def napravi_system_prompt(sc):
     staticki_dio = (
-        "Ti si pacijent koji je upravo ušao u apoteku. "
-        "Pravila ponašanja:\n"
-        "1. Govori u prvom licu, prirodno, kao običan pacijent — ne kao stručnjak. Koristi jezik laika.\n"
-        "2. Odgovaraj kratko: najviše 2 rečenice po replici.\n"
+        "Ti si pacijent koji je upravo usao u apoteku. "
+        "Pravila ponasanja:\n"
+        "1. Govori u prvom licu, prirodno, kao obican pacijent — ne kao strucnjak. Koristi jezik laika.\n"
+        "2. Odgovaraj kratko: najvise 2 recenice po replici.\n"
         "3. NE otkrivaj sve simptome odjednom. Farmaceut te mora pitati da bi izvukao informacije.\n"
-        "4. Budi realističan i blago skeptičan — možeš pitati o cijeni ili nuspojavama.\n"
-        "5. Ako te farmaceut ništa konkretno ne pita, ne nudi informacije sam od sebe.\n"
+        "4. Budi realistican i blago skeptican — mozes pitati o cijeni ili nuspojavama.\n"
+        "5. Ako te farmaceut nista konkretno ne pita, ne nudi informacije sam od sebe.\n"
         "6. Ostani u ulozi pacijenta bez obzira na sve. Nikada ne izlazi iz uloge.\n"
-        "7. Govori isključivo na bosanskom jeziku."
+        "7. Govori iskljucivo na bosanskom jeziku."
     )
     dinamicki_dio = (
         f"\n\nGlumaš sljedeću osobu:\n"
@@ -91,17 +92,9 @@ def napravi_system_prompt(sc):
         f"- Trenutna terapija: {sc['terapija']}\n"
         f"- Skriveni detalji (otkrij SAMO na pravo pitanje): {sc['skriveni_detalji']}"
     )
-    # Prompt caching: statički dio se kešira, dinamički se mijenja po scenariju
     return [
-        {
-            "type": "text",
-            "text": staticki_dio,
-            "cache_control": {"type": "ephemeral"},
-        },
-        {
-            "type": "text",
-            "text": dinamicki_dio,
-        },
+        {"type": "text", "text": staticki_dio, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": dinamicki_dio},
     ]
 
 
@@ -121,25 +114,23 @@ def pozovi_evaluatora(transkript_tekst, sc):
 Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}
 Terapija pacijenta: {sc['terapija']}
 Crvene zastavice: {sc['crvene_zastavice']}
-Očekivano savjetovanje: {sc['ocekivano_savjetovanje']}
+Ocekivano savjetovanje: {sc['ocekivano_savjetovanje']}
 
 {RUBRIKA}
 
-## Transkript razgovora
+Transkript razgovora:
 {transkript_tekst}
 
-## Zadatak
-Ocijeni farmaceutovo savjetovanje prema rubrici. Vrati ISKLJUČIVO validan JSON u ovom formatu:
+Ocijeni savjetovanje prema rubrici. Vrati SAMO validan JSON, bez ikakvog teksta prije ili poslije:
 {{
   "anamneza": <broj 0-10>,
   "komunikacija": <broj 0-10>,
   "sigurnost": <broj 0-10>,
-  "ukupna_ocjena": <broj 0-10 na dvije decimale>,
-  "propustena_pitanja": ["pitanje 1", "pitanje 2"],
-  "pohvale": ["šta je farmaceut uradio dobro"],
-  "smjernice": ["konkretan prijedlog za poboljšanje 1", "konkretan prijedlog 2"]
-}}
-Bez teksta izvan JSON-a."""
+  "ukupna_ocjena": <broj 0.0-10.0>,
+  "propustena_pitanja": ["pitanje koje nije postavljeno 1", "pitanje 2"],
+  "pohvale": ["sta je farmaceut uradio dobro 1"],
+  "smjernice": ["konkretan prijedlog za poboljsanje 1", "prijedlog 2"]
+}}"""
 
     odgovor = client.messages.create(
         model="claude-sonnet-4-6",
@@ -147,6 +138,73 @@ Bez teksta izvan JSON-a."""
         messages=[{"role": "user", "content": prompt}],
     )
     return odgovor.content[0].text
+
+
+def izvuci_json(tekst):
+    """Izvuci JSON iz teksta modela, robustno."""
+    tekst = tekst.strip()
+    pocetak = tekst.find("{")
+    kraj = tekst.rfind("}") + 1
+    if pocetak == -1 or kraj == 0:
+        return None
+    try:
+        return json.loads(tekst[pocetak:kraj])
+    except json.JSONDecodeError:
+        return None
+
+
+def pokreni_evaluaciju(stanje, sc):
+    """Pokreni evaluatora i spremi rezultat u stanje."""
+    transkript_tekst = "\n".join(
+        f"{'Farmaceut' if p['role'] == 'user' else 'Pacijent'}: {p['content']}"
+        for p in stanje["poruke_prikaz"]
+    )
+    with st.spinner("Evaluator analizira savjetovanje..."):
+        json_tekst = pozovi_evaluatora(transkript_tekst, sc)
+
+    rezultat = izvuci_json(json_tekst)
+    if rezultat:
+        stanje["ocjena"] = rezultat
+        stanje["zavrseno"] = True
+    else:
+        st.error("Greška pri analizi ocjene. Pokušaj kliknuti 'Završi savjetovanje' ponovo.")
+        stanje["zavrseno"] = False
+
+
+# ─── Auth funkcije ────────────────────────────────────────────────────────────
+def provjeri_login(email, lozinka):
+    try:
+        korisnici = dict(st.secrets.get("users", {}))
+        return korisnici.get(email.lower().strip()) == lozinka
+    except Exception:
+        return False
+
+
+def prikazi_login():
+    st.markdown("## Prijava")
+    st.markdown("Unesite vaše podatke za pristup aplikaciji.")
+
+    with st.form("login_form"):
+        email = st.text_input("Email adresa")
+        lozinka = st.text_input("Lozinka", type="password")
+        submit = st.form_submit_button("Prijavi se", type="primary")
+
+    if submit:
+        if provjeri_login(email, lozinka):
+            st.session_state["ulogovan"] = True
+            st.session_state["korisnik_email"] = email.lower().strip()
+            st.session_state["pokusaji"] = set()
+            st.rerun()
+        else:
+            st.error("Pogrešan email ili lozinka.")
+
+    st.divider()
+    st.markdown("**Nemate pristup?**")
+    st.info(
+        "Pošaljite zahtjev za registraciju na: **semir.mehovic1989@gmail.com**\n\n"
+        "U poruci navedite: ime i prezime, instituciju/apoteku i razlog pristupa.",
+        icon="📧",
+    )
 
 
 # ─── Streamlit UI ─────────────────────────────────────────────────────────────
@@ -158,26 +216,47 @@ st.set_page_config(
 
 # Disclaimer
 st.warning(
-    "**NAPOMENA:** Ovaj alat namijenjen je isključivo **edukaciji i vježbi** farmaceutskog savjetovanja. "
-    "**NIJE** podrška stvarnom kliničkom odlučivanju. Sve osobe i scenariji su izmišljeni.",
+    "**NAPOMENA:** Ovaj alat namijenjen je isključivo **edukaciji i vježbi**. "
+    "**NIJE** podrška stvarnom kliničkom odlučivanju. Sve osobe su izmišljene.",
     icon="⚠️",
 )
 
-# Naslov
-col1, col2 = st.columns([1, 5])
-with col1:
-    st.markdown("### 💊")
-with col2:
-    st.markdown("## Clinical Case Simulator")
-    st.caption("Edu Pharma Community · Semir Mehović, mag. pharm.")
-
+st.markdown("## 💊 Clinical Case Simulator")
+st.caption("Edu Pharma Community · Semir Mehović, mag. pharm.")
 st.divider()
 
-# Odabir scenarija
-odabrani_naziv = st.selectbox("Odaberi scenarij:", list(SCENARIJI.keys()))
+# ─── Provjera prijave ─────────────────────────────────────────────────────────
+if not st.session_state.get("ulogovan"):
+    prikazi_login()
+    st.stop()
+
+# Odjava
+with st.sidebar:
+    st.markdown(f"**Prijavljeni kao:**\n{st.session_state.get('korisnik_email', '')}")
+    if st.button("Odjavi se"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+# ─── Odabir scenarija ─────────────────────────────────────────────────────────
+pokusaji = st.session_state.get("pokusaji", set())
+dostupni = [naziv for naziv in SCENARIJI if naziv not in pokusaji]
+zavrseni = [naziv for naziv in SCENARIJI if naziv in pokusaji]
+
+if zavrseni:
+    with st.sidebar:
+        st.markdown("**Završeni scenariji:**")
+        for z in zavrseni:
+            st.markdown(f"✅ {z.split('—')[0].strip()}")
+
+if not dostupni:
+    st.success("Završili ste sve dostupne scenarije za ovu sesiju!")
+    st.stop()
+
+odabrani_naziv = st.selectbox("Odaberi scenarij:", dostupni)
 sc = SCENARIJI[odabrani_naziv]
 
-# Prikaz podataka o pacijentu
+# Podaci o pacijentu
 with st.expander("Podaci o pacijentu", expanded=True):
     st.markdown(f"**Ime:** {sc['ime']}  |  **Godine:** {sc['godine']}")
     st.markdown(f"**Tegoba:** {sc['tegoba']}")
@@ -185,7 +264,7 @@ with st.expander("Podaci o pacijentu", expanded=True):
 
 st.divider()
 
-# Inicijalizacija session state
+# ─── Session state za razgovor ────────────────────────────────────────────────
 kljuc = f"chat_{odabrani_naziv}"
 if kljuc not in st.session_state:
     st.session_state[kljuc] = {
@@ -193,23 +272,15 @@ if kljuc not in st.session_state:
         "poruke_prikaz": [],
         "ocjena": None,
         "zavrseno": False,
+        "broj_poteza": 0,
     }
 
 stanje = st.session_state[kljuc]
 
-# Reset dugme
-if st.button("Novi razgovor", type="secondary"):
-    st.session_state[kljuc] = {
-        "poruke_api": [],
-        "poruke_prikaz": [],
-        "ocjena": None,
-        "zavrseno": False,
-    }
-    st.rerun()
-
-# Prikaz historije chata
+# ─── Prikaz historije chata ───────────────────────────────────────────────────
 for poruka in stanje["poruke_prikaz"]:
-    with st.chat_message(poruka["role"], avatar="🧑‍⚕️" if poruka["role"] == "user" else "🙍"):
+    avatar = "🧑‍⚕️" if poruka["role"] == "user" else "🙍"
+    with st.chat_message(poruka["role"], avatar=avatar):
         st.markdown(poruka["content"])
 
 # Prva poruka pacijenta
@@ -220,60 +291,57 @@ if not stanje["poruke_prikaz"] and not stanje["zavrseno"]:
     with st.chat_message("assistant", avatar="🙍"):
         st.markdown(prva)
 
-# Unos farmaceuta
+# ─── Unos farmaceuta ──────────────────────────────────────────────────────────
 if not stanje["zavrseno"]:
+    preostalo = MAX_POTEZA - stanje["broj_poteza"]
+    st.caption(f"Preostalo unosa: **{preostalo} / {MAX_POTEZA}**")
+
     unos = st.chat_input("Vaš odgovor (farmaceut)...")
     if unos:
         stanje["poruke_prikaz"].append({"role": "user", "content": unos})
         stanje["poruke_api"].append({"role": "user", "content": unos})
+        stanje["broj_poteza"] += 1
+
         with st.chat_message("user", avatar="🧑‍⚕️"):
             st.markdown(unos)
 
-        with st.chat_message("assistant", avatar="🙍"):
-            with st.spinner("Pacijent odgovara..."):
-                odgovor = pozovi_pacijenta(stanje["poruke_api"], sc)
-            st.markdown(odgovor)
-            stanje["poruke_prikaz"].append({"role": "assistant", "content": odgovor})
-            stanje["poruke_api"].append({"role": "assistant", "content": odgovor})
+        # Odgovor pacijenta (osim ako je dostignut limit)
+        if stanje["broj_poteza"] < MAX_POTEZA:
+            with st.chat_message("assistant", avatar="🙍"):
+                with st.spinner(""):
+                    odgovor = pozovi_pacijenta(stanje["poruke_api"], sc)
+                st.markdown(odgovor)
+                stanje["poruke_prikaz"].append({"role": "assistant", "content": odgovor})
+                stanje["poruke_api"].append({"role": "assistant", "content": odgovor})
+            st.rerun()
 
-# Dugme za završetak i ocjenu
+        else:
+            # Dostignut limit — automatski završi
+            st.info(f"Dostigli ste maksimalan broj unosa ({MAX_POTEZA}). Savjetovanje se automatski završava.")
+            pokusaji.add(odabrani_naziv)
+            st.session_state["pokusaji"] = pokusaji
+            pokreni_evaluaciju(stanje, sc)
+            st.rerun()
+
+# Ručno završavanje
 st.divider()
-if not stanje["zavrseno"] and len(stanje["poruke_prikaz"]) >= 3:
+if not stanje["zavrseno"] and stanje["broj_poteza"] >= 2:
     if st.button("Završi savjetovanje i dobij ocjenu", type="primary"):
-        stanje["zavrseno"] = True
-
-        transkript_tekst = "\n".join(
-            f"{'Farmaceut' if p['role'] == 'user' else 'Pacijent'}: {p['content']}"
-            for p in stanje["poruke_prikaz"]
-        )
-
-        with st.spinner("Evaluator analizira savjetovanje..."):
-            json_tekst = pozovi_evaluatora(transkript_tekst, sc)
-
-        try:
-            # Izvuci JSON čak i ako model doda tekst oko njega
-            pocetak = json_tekst.find("{")
-            kraj = json_tekst.rfind("}") + 1
-            rezultat = json.loads(json_tekst[pocetak:kraj])
-            stanje["ocjena"] = rezultat
-        except Exception:
-            st.error("Greška pri parsiranju ocjene. Pokušaj ponovo.")
-            stanje["zavrseno"] = False
-
+        pokusaji.add(odabrani_naziv)
+        st.session_state["pokusaji"] = pokusaji
+        pokreni_evaluaciju(stanje, sc)
         st.rerun()
 
-# Prikaz ocjene
+# ─── Prikaz ocjene ───────────────────────────────────────────────────────────
 if stanje["zavrseno"] and stanje["ocjena"]:
     r = stanje["ocjena"]
-    st.markdown("## Ocjena savjetovanja")
 
-    # Ukupna ocjena
-    ukupno = r.get("ukupna_ocjena", 0)
+    ukupno = float(r.get("ukupna_ocjena", 0))
     boja = "🟢" if ukupno >= 7 else ("🟡" if ukupno >= 5 else "🔴")
+
+    st.markdown("## Ocjena savjetovanja")
     st.markdown(f"### {boja} Ukupna ocjena: **{ukupno:.1f} / 10**")
 
-    # Tabela po kategorijama
-    st.markdown("#### Ocjene po kategorijama")
     col1, col2, col3 = st.columns(3)
     col1.metric("Anamneza (×0.4)", f"{r.get('anamneza', 0)}/10")
     col2.metric("Komunikacija (×0.3)", f"{r.get('komunikacija', 0)}/10")
@@ -281,21 +349,18 @@ if stanje["zavrseno"] and stanje["ocjena"]:
 
     st.divider()
 
-    # Pohvale
     pohvale = r.get("pohvale", [])
     if pohvale:
         st.markdown("#### Šta ste uradili dobro")
         for p in pohvale:
             st.success(p, icon="✅")
 
-    # Propuštena pitanja
     propustena = r.get("propustena_pitanja", [])
     if propustena:
         st.markdown("#### Propuštena pitanja")
         for p in propustena:
             st.warning(p, icon="❓")
 
-    # Smjernice za poboljšanje
     smjernice = r.get("smjernice", [])
     if smjernice:
         st.markdown("#### Smjernice za poboljšanje")
@@ -303,4 +368,4 @@ if stanje["zavrseno"] and stanje["ocjena"]:
             st.info(s, icon="💡")
 
     st.divider()
-    st.caption("Za novi pokušaj klikni 'Novi razgovor' na vrhu.")
+    st.caption("Ovaj scenarij je završen. Za sljedeći scenarij odaberite ga iz liste iznad.")

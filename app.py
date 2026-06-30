@@ -95,7 +95,7 @@ def napravi_system_prompt(sc):
         },
         {
             "type": "text",
-            "text": dinamički_dio,
+            "text": dinamicki_dio,
         },
     ]
 

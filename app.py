@@ -10,8 +10,10 @@ import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+# Lokalno: čita iz .env — na Streamlit Cloud: čita iz st.secrets
 load_dotenv()
-client = Anthropic()
+api_key = os.getenv("ANTHROPIC_API_KEY") or st.secrets.get("ANTHROPIC_API_KEY")
+client = Anthropic(api_key=api_key)
 
 # ─── Scenariji ────────────────────────────────────────────────────────────────
 SCENARIJI = {

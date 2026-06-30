@@ -6,12 +6,17 @@ Supabase backend · Leaderboard · Cross-device persistence · Beautiful UI
 import json
 import os
 import hashlib
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
+
+ADMIN_EMAIL = "semir.mehovic1989@gmail.com"
 
 # ─── Page config (mora biti prva Streamlit komanda) ───────────────────────────
 st.set_page_config(
@@ -397,6 +402,92 @@ def db_leaderboard(period):
         return []
 
 
+# ─── Admin DB funkcije ───────────────────────────────────────────────────────
+def db_neodobreni_korisnici():
+    if not db:
+        return []
+    try:
+        r = db.table("users").select("*").eq("approved", False).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def db_odobri_korisnika(email):
+    if not db:
+        return False
+    try:
+        db.table("users").update({"approved": True}).eq("email", email).execute()
+        return True
+    except Exception:
+        return False
+
+
+def db_odbij_korisnika(email):
+    if not db:
+        return False
+    try:
+        db.table("users").delete().eq("email", email).execute()
+        return True
+    except Exception:
+        return False
+
+
+def db_svi_korisnici():
+    if not db:
+        return []
+    try:
+        r = db.table("users").select("*").eq("approved", True).order("full_name").execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+# ─── Email notifikacija ─────────────────────────────────────────────────────
+def posalji_email_odobrenje(korisnik_email, korisnik_ime):
+    try:
+        smtp_email = st.secrets.get("SMTP_EMAIL", "")
+        smtp_password = st.secrets.get("SMTP_PASSWORD", "")
+        if not smtp_email or not smtp_password:
+            return False, "SMTP credentials nisu konfigurisani."
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Vaš nalog je odobren — Clinical Case Simulator"
+        msg["From"] = smtp_email
+        msg["To"] = korisnik_email
+
+        html = f"""
+        <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
+            <div style="text-align:center;margin-bottom:24px">
+                <h2 style="color:#0D8A9E;margin:0">Clinical Case Simulator</h2>
+                <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
+            </div>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
+                <div style="font-size:32px;margin-bottom:8px">✅</div>
+                <div style="font-size:18px;font-weight:600;color:#166534">Nalog odobren!</div>
+            </div>
+            <p style="color:#1e293b;font-size:15px;line-height:1.6">
+                Poštovani/a <strong>{korisnik_ime}</strong>,
+            </p>
+            <p style="color:#1e293b;font-size:15px;line-height:1.6">
+                Vaš nalog na platformi <strong>Clinical Case Simulator</strong> je odobren.
+                Sada se možete prijaviti i započeti rad na kliničkim scenarijima.
+            </p>
+            <p style="color:#64748b;font-size:13px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px">
+                Edu Pharma Community · Farmaceutski trening
+            </p>
+        </div>
+        """
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(smtp_email, smtp_password)
+            server.sendmail(smtp_email, korisnik_email, msg.as_string())
+        return True, "ok"
+    except Exception as e:
+        return False, str(e)
+
+
 # ─── Scenariji ────────────────────────────────────────────────────────────────
 SCENARIJI = {
     "scenarij_1": {
@@ -658,6 +749,78 @@ def prikazi_moje_rezultate():
         """, unsafe_allow_html=True)
 
 
+def prikazi_admin():
+    st.markdown("## 👑 Admin panel")
+
+    # ── Zahtjevi na čekanju ──
+    st.markdown("### 📬 Zahtjevi na čekanju")
+    neodobreni = db_neodobreni_korisnici()
+
+    if not neodobreni:
+        st.markdown("""
+        <div style="text-align:center;padding:40px;color:#94a3b8">
+            <div style="font-size:40px">✅</div>
+            <div style="margin-top:8px">Nema zahtjeva na čekanju.</div>
+        </div>""", unsafe_allow_html=True)
+    else:
+        st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.", icon="📬")
+        for k in neodobreni:
+            with st.container():
+                st.markdown(f"""
+                <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:10px;
+                     box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #f59e0b">
+                    <div style="font-weight:700;color:#1e293b">{k.get('full_name','—')}</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:3px">
+                        📧 {k['email']} · 🏥 {k.get('institution','—')}
+                    </div>
+                    <div style="font-size:12px;color:#94a3b8;margin-top:2px">
+                        Registrovan: {str(k.get('created_at',''))[:16]}
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if st.button("✅ Odobri", key=f"odobri_{k['email']}", type="primary", use_container_width=True):
+                        if db_odobri_korisnika(k["email"]):
+                            ok, msg = posalji_email_odobrenje(k["email"], k.get("full_name", k["email"]))
+                            if ok:
+                                st.success(f"Odobren: {k.get('full_name','')} — email poslan!")
+                            else:
+                                st.success(f"Odobren: {k.get('full_name','')}.")
+                                st.warning(f"Email nije poslan: {msg}", icon="📧")
+                            st.rerun()
+                        else:
+                            st.error("Greška pri odobravanju.")
+                with col_b:
+                    if st.button("❌ Odbij", key=f"odbij_{k['email']}", use_container_width=True):
+                        if db_odbij_korisnika(k["email"]):
+                            st.info(f"Korisnik {k.get('full_name','')} odbijen i obrisan.")
+                            st.rerun()
+                        else:
+                            st.error("Greška pri brisanju.")
+
+    st.divider()
+
+    # ── Lista odobrenih korisnika ──
+    st.markdown("### 👥 Odobreni korisnici")
+    odobreni = db_svi_korisnici()
+    if not odobreni:
+        st.caption("Nema odobrenih korisnika.")
+    else:
+        st.caption(f"Ukupno: **{len(odobreni)}** korisnik/a")
+        for k in odobreni:
+            st.markdown(f"""
+            <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:8px;
+                 box-shadow:0 1px 3px rgba(0,0,0,0.05);display:flex;align-items:center;gap:12px">
+                <div style="flex:1">
+                    <div style="font-weight:600;color:#1e293b">{k.get('full_name','—')}</div>
+                    <div style="font-size:13px;color:#64748b">{k.get('institution','')} · {k['email']}</div>
+                </div>
+                <span style="background:#dcfce7;color:#16a34a;padding:4px 12px;border-radius:16px;
+                      font-size:12px;font-weight:600">Aktivan</span>
+            </div>""", unsafe_allow_html=True)
+
+
 def prikazi_login():
     # Centrirani login
     col1, col2, col3 = st.columns([1, 10, 1])
@@ -743,9 +906,12 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     st.markdown("---")
+    nav_opcije = ["💊  Scenariji", "🏆  Ljestvica", "📊  Moji rezultati"]
+    if st.session_state.get("korisnik_email", "") == ADMIN_EMAIL:
+        nav_opcije.append("👑  Admin")
     stranica = st.radio(
         "Navigacija",
-        ["💊  Scenariji", "🏆  Ljestvica", "📊  Moji rezultati"],
+        nav_opcije,
         label_visibility="collapsed",
     )
     st.markdown("---")
@@ -761,6 +927,10 @@ if "Ljestvica" in stranica:
 
 if "Moji rezultati" in stranica:
     prikazi_moje_rezultate()
+    st.stop()
+
+if "Admin" in stranica:
+    prikazi_admin()
     st.stop()
 
 # ─── SCENARIJI ───────────────────────────────────────────────────────────────

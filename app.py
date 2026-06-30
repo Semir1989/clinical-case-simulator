@@ -140,6 +140,40 @@ Ocijeni savjetovanje prema rubrici. Vrati SAMO validan JSON, bez ikakvog teksta 
     return odgovor.content[0].text
 
 
+def prikazi_ocjenu(r):
+    """Prikaži ocjenu savjetovanja — koristi se i odmah i pri ponovnom pregledu."""
+    ukupno = float(r.get("ukupna_ocjena", 0))
+    boja = "🟢" if ukupno >= 7 else ("🟡" if ukupno >= 5 else "🔴")
+
+    st.markdown("## Ocjena savjetovanja")
+    st.markdown(f"### {boja} Ukupna ocjena: **{ukupno:.1f} / 10**")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Anamneza (×0.4)", f"{r.get('anamneza', 0)}/10")
+    col2.metric("Komunikacija (×0.3)", f"{r.get('komunikacija', 0)}/10")
+    col3.metric("Sigurnost (×0.3)", f"{r.get('sigurnost', 0)}/10")
+
+    st.divider()
+
+    pohvale = r.get("pohvale", [])
+    if pohvale:
+        st.markdown("#### Šta ste uradili dobro")
+        for p in pohvale:
+            st.success(p, icon="✅")
+
+    propustena = r.get("propustena_pitanja", [])
+    if propustena:
+        st.markdown("#### Propuštena pitanja")
+        for p in propustena:
+            st.warning(p, icon="❓")
+
+    smjernice = r.get("smjernice", [])
+    if smjernice:
+        st.markdown("#### Smjernice za poboljšanje")
+        for s in smjernice:
+            st.info(s, icon="💡")
+
+
 def izvuci_json(tekst):
     """Izvuci JSON iz teksta modela, robustno."""
     tekst = tekst.strip()
@@ -238,23 +272,22 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
-# ─── Odabir scenarija ─────────────────────────────────────────────────────────
+# ─── Odabir scenarija (svi scenariji vidljivi, završeni označeni) ─────────────
 pokusaji = st.session_state.get("pokusaji", set())
-dostupni = [naziv for naziv in SCENARIJI if naziv not in pokusaji]
-zavrseni = [naziv for naziv in SCENARIJI if naziv in pokusaji]
 
-if zavrseni:
-    with st.sidebar:
-        st.markdown("**Završeni scenariji:**")
-        for z in zavrseni:
-            st.markdown(f"✅ {z.split('—')[0].strip()}")
+def naziv_za_prikaz(naziv):
+    if naziv in pokusaji:
+        return "✅ " + naziv
+    return naziv
 
-if not dostupni:
-    st.success("Završili ste sve dostupne scenarije za ovu sesiju!")
-    st.stop()
-
-odabrani_naziv = st.selectbox("Odaberi scenarij:", dostupni)
+opcije = list(SCENARIJI.keys())
+odabrani_naziv = st.selectbox(
+    "Odaberi scenarij:",
+    opcije,
+    format_func=naziv_za_prikaz,
+)
 sc = SCENARIJI[odabrani_naziv]
+vec_odraden = odabrani_naziv in pokusaji
 
 # Podaci o pacijentu
 with st.expander("Podaci o pacijentu", expanded=True):
@@ -277,7 +310,23 @@ if kljuc not in st.session_state:
 
 stanje = st.session_state[kljuc]
 
-# ─── Prikaz historije chata ───────────────────────────────────────────────────
+# ─── Ako je scenarij završen — prikaži transkript i ocjenu (read-only) ────────
+if vec_odraden:
+    st.info("Ovaj scenarij ste već završili. Ispod možete pregledati transkript i vašu ocjenu.", icon="📋")
+
+    with st.expander("Transkript razgovora", expanded=False):
+        for poruka in stanje["poruke_prikaz"]:
+            avatar = "🧑‍⚕️" if poruka["role"] == "user" else "🙍"
+            with st.chat_message(poruka["role"], avatar=avatar):
+                st.markdown(poruka["content"])
+
+    if stanje["ocjena"]:
+        prikazi_ocjenu(stanje["ocjena"])
+    else:
+        st.warning("Ocjena nije dostupna za ovaj scenarij.")
+    st.stop()
+
+# ─── Aktivni razgovor ─────────────────────────────────────────────────────────
 for poruka in stanje["poruke_prikaz"]:
     avatar = "🧑‍⚕️" if poruka["role"] == "user" else "🙍"
     with st.chat_message(poruka["role"], avatar=avatar):
@@ -305,7 +354,6 @@ if not stanje["zavrseno"]:
         with st.chat_message("user", avatar="🧑‍⚕️"):
             st.markdown(unos)
 
-        # Odgovor pacijenta (osim ako je dostignut limit)
         if stanje["broj_poteza"] < MAX_POTEZA:
             with st.chat_message("assistant", avatar="🙍"):
                 with st.spinner(""):
@@ -314,9 +362,7 @@ if not stanje["zavrseno"]:
                 stanje["poruke_prikaz"].append({"role": "assistant", "content": odgovor})
                 stanje["poruke_api"].append({"role": "assistant", "content": odgovor})
             st.rerun()
-
         else:
-            # Dostignut limit — automatski završi
             st.info(f"Dostigli ste maksimalan broj unosa ({MAX_POTEZA}). Savjetovanje se automatski završava.")
             pokusaji.add(odabrani_naziv)
             st.session_state["pokusaji"] = pokusaji
@@ -332,40 +378,6 @@ if not stanje["zavrseno"] and stanje["broj_poteza"] >= 2:
         pokreni_evaluaciju(stanje, sc)
         st.rerun()
 
-# ─── Prikaz ocjene ───────────────────────────────────────────────────────────
+# ─── Prikaz ocjene nakon završetka ───────────────────────────────────────────
 if stanje["zavrseno"] and stanje["ocjena"]:
-    r = stanje["ocjena"]
-
-    ukupno = float(r.get("ukupna_ocjena", 0))
-    boja = "🟢" if ukupno >= 7 else ("🟡" if ukupno >= 5 else "🔴")
-
-    st.markdown("## Ocjena savjetovanja")
-    st.markdown(f"### {boja} Ukupna ocjena: **{ukupno:.1f} / 10**")
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Anamneza (×0.4)", f"{r.get('anamneza', 0)}/10")
-    col2.metric("Komunikacija (×0.3)", f"{r.get('komunikacija', 0)}/10")
-    col3.metric("Sigurnost (×0.3)", f"{r.get('sigurnost', 0)}/10")
-
-    st.divider()
-
-    pohvale = r.get("pohvale", [])
-    if pohvale:
-        st.markdown("#### Šta ste uradili dobro")
-        for p in pohvale:
-            st.success(p, icon="✅")
-
-    propustena = r.get("propustena_pitanja", [])
-    if propustena:
-        st.markdown("#### Propuštena pitanja")
-        for p in propustena:
-            st.warning(p, icon="❓")
-
-    smjernice = r.get("smjernice", [])
-    if smjernice:
-        st.markdown("#### Smjernice za poboljšanje")
-        for s in smjernice:
-            st.info(s, icon="💡")
-
-    st.divider()
-    st.caption("Ovaj scenarij je završen. Za sljedeći scenarij odaberite ga iz liste iznad.")
+    prikazi_ocjenu(stanje["ocjena"])

@@ -828,6 +828,28 @@ def prikazi_admin():
 
     st.divider()
 
+    # ── Test emaila ──
+    st.markdown("### 📧 Test email slanja")
+    test_email = st.text_input("Email za test:", placeholder="apotekesarajevosindikat@gmail.com")
+    if st.button("📨 Pošalji testni email", type="primary"):
+        if test_email:
+            # Provjeri SMTP konfiguraciju
+            smtp_email = st.secrets.get("SMTP_EMAIL", "")
+            smtp_password = st.secrets.get("SMTP_PASSWORD", "")
+            smtp_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com")
+            smtp_port = st.secrets.get("SMTP_PORT", 465)
+            st.info(f"SMTP config: host=`{smtp_host}`, port=`{smtp_port}`, email=`{smtp_email}`, password={'✅ postoji' if smtp_password else '❌ NEDOSTAJE'}")
+
+            ok, msg = posalji_email_odobrenje(test_email, "Test Korisnik")
+            if ok:
+                st.success(f"Email USPJEŠNO poslan na {test_email}!")
+            else:
+                st.error(f"Email NEUSPJEŠAN: {msg}")
+        else:
+            st.warning("Unesi email adresu.")
+
+    st.divider()
+
     # ── Lista odobrenih korisnika ──
     st.markdown("### 👥 Odobreni korisnici")
     odobreni = db_svi_korisnici()

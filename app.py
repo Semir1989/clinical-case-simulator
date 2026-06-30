@@ -6,9 +6,8 @@ Supabase backend · Leaderboard · Cross-device persistence · Beautiful UI
 import json
 import os
 import hashlib
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
@@ -447,58 +446,47 @@ def db_svi_korisnici():
         return []
 
 
-# ─── Email notifikacija ─────────────────────────────────────────────────────
+# ─── Email notifikacija (EmailJS) ────────────────────────────────────────────
 def posalji_email_odobrenje(korisnik_email, korisnik_ime):
     try:
-        smtp_email = st.secrets.get("SMTP_EMAIL", "")
-        smtp_password = st.secrets.get("SMTP_PASSWORD", "")
-        if not smtp_email or not smtp_password:
-            return False, "SMTP credentials nisu konfigurisani."
+        service_id = st.secrets.get("EMAILJS_SERVICE_ID", "")
+        template_id = st.secrets.get("EMAILJS_TEMPLATE_ID", "")
+        public_key = st.secrets.get("EMAILJS_PUBLIC_KEY", "")
 
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "Vaš nalog je odobren — Clinical Case Simulator"
-        msg["From"] = smtp_email
-        msg["To"] = korisnik_email
+        if not all([service_id, template_id, public_key]):
+            return False, "EmailJS credentials nisu konfigurisani (EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY)."
 
-        html = f"""
-        <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
-            <div style="text-align:center;margin-bottom:24px">
-                <h2 style="color:#0D8A9E;margin:0">Clinical Case Simulator</h2>
-                <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
-            </div>
-            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
-                <div style="font-size:32px;margin-bottom:8px">✅</div>
-                <div style="font-size:18px;font-weight:600;color:#166534">Nalog odobren!</div>
-            </div>
-            <p style="color:#1e293b;font-size:15px;line-height:1.6">
-                Poštovani/a <strong>{korisnik_ime}</strong>,
-            </p>
-            <p style="color:#1e293b;font-size:15px;line-height:1.6">
-                Vaš nalog na platformi <strong>Clinical Case Simulator</strong> je odobren.
-                Sada se možete prijaviti i započeti rad na kliničkim scenarijima.
-            </p>
-            <p style="color:#64748b;font-size:13px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px">
-                Edu Pharma Community · Farmaceutski trening
-            </p>
-        </div>
-        """
-        msg.attach(MIMEText(html, "html"))
+        payload = json.dumps({
+            "service_id": service_id,
+            "template_id": template_id,
+            "user_id": public_key,
+            "template_params": {
+                "to_email": korisnik_email,
+                "to_name": korisnik_ime,
+                "subject": "Vaš nalog je odobren — Clinical Case Simulator",
+                "message": (
+                    f"Poštovani/a {korisnik_ime},\n\n"
+                    "Vaš nalog na platformi Clinical Case Simulator je odobren. "
+                    "Sada se možete prijaviti i započeti rad na kliničkim scenarijima.\n\n"
+                    "Edu Pharma Community · Farmaceutski trening"
+                ),
+            },
+        }).encode("utf-8")
 
-        smtp_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(st.secrets.get("SMTP_PORT", 465))
-
-        try:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
-                server.login(smtp_email, smtp_password)
-                server.sendmail(smtp_email, korisnik_email, msg.as_string())
-            return True, "ok"
-        except (OSError, smtplib.SMTPException):
-            # Fallback: port 587 sa STARTTLS
-            with smtplib.SMTP(smtp_host, 587, timeout=15) as server:
-                server.starttls()
-                server.login(smtp_email, smtp_password)
-                server.sendmail(smtp_email, korisnik_email, msg.as_string())
-            return True, "ok"
+        req = urllib.request.Request(
+            "https://api.emailjs.com/api/v1.0/email/send",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            if resp.status == 200:
+                return True, "ok"
+            else:
+                return False, f"EmailJS status: {resp.status}"
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        return False, f"EmailJS HTTP {e.code}: {body}"
     except Exception as e:
         return False, str(e)
 
@@ -841,12 +829,10 @@ def prikazi_admin():
     test_email = st.text_input("Email za test:", placeholder="apotekesarajevosindikat@gmail.com")
     if st.button("📨 Pošalji testni email", type="primary"):
         if test_email:
-            # Provjeri SMTP konfiguraciju
-            smtp_email = st.secrets.get("SMTP_EMAIL", "")
-            smtp_password = st.secrets.get("SMTP_PASSWORD", "")
-            smtp_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com")
-            smtp_port = st.secrets.get("SMTP_PORT", 465)
-            st.info(f"SMTP config: host=`{smtp_host}`, port=`{smtp_port}`, email=`{smtp_email}`, password={'✅ postoji' if smtp_password else '❌ NEDOSTAJE'}")
+            sid = st.secrets.get("EMAILJS_SERVICE_ID", "")
+            tid = st.secrets.get("EMAILJS_TEMPLATE_ID", "")
+            pk = st.secrets.get("EMAILJS_PUBLIC_KEY", "")
+            st.info(f"EmailJS config: service=`{sid}`, template=`{tid}`, key={'✅' if pk else '❌ NEDOSTAJE'}")
 
             ok, msg = posalji_email_odobrenje(test_email, "Test Korisnik")
             if ok:

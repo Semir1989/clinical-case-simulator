@@ -11,12 +11,12 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 
 # Lokalno: čita iz .env — na Streamlit Cloud: čita iz st.secrets
-load_dotenv()
 try:
-    api_key = st.secrets["ANTHROPIC_API_KEY"]
+    os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
 except Exception:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-client = Anthropic(api_key=api_key)
+    load_dotenv()
+
+client = Anthropic()
 
 # ─── Scenariji ────────────────────────────────────────────────────────────────
 SCENARIJI = {

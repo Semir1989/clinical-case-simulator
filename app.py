@@ -779,6 +779,11 @@ def prikazi_admin():
                 st.info(f"Korisnik **{ime_k}** odbijen i obrisan.")
             else:
                 st.error(f"Greška pri brisanju korisnika {email_k}.")
+        elif akcija["tip"] == "brisi":
+            if db_odbij_korisnika(email_k):
+                st.info(f"Korisnik **{ime_k}** ({email_k}) je obrisan.")
+            else:
+                st.error(f"Greška pri brisanju korisnika {email_k}.")
 
     # ── Zahtjevi na čekanju ──
     st.markdown("### 📬 Zahtjevi na čekanju")
@@ -830,9 +835,9 @@ def prikazi_admin():
         st.caption("Nema odobrenih korisnika.")
     else:
         st.caption(f"Ukupno: **{len(odobreni)}** korisnik/a")
-        for k in odobreni:
+        for i, k in enumerate(odobreni):
             st.markdown(f"""
-            <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:8px;
+            <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:4px;
                  box-shadow:0 1px 3px rgba(0,0,0,0.05);display:flex;align-items:center;gap:12px">
                 <div style="flex:1">
                     <div style="font-weight:600;color:#1e293b">{k.get('full_name','—')}</div>
@@ -841,6 +846,13 @@ def prikazi_admin():
                 <span style="background:#dcfce7;color:#16a34a;padding:4px 12px;border-radius:16px;
                       font-size:12px;font-weight:600">Aktivan</span>
             </div>""", unsafe_allow_html=True)
+            if k["email"] != ADMIN_EMAIL:
+                if st.button("🗑️ Obriši", key=f"brisi_{i}", use_container_width=False):
+                    st.session_state["admin_akcija"] = {
+                        "tip": "brisi", "email": k["email"],
+                        "ime": k.get("full_name", k["email"]),
+                    }
+                    st.rerun()
 
 
 def prikazi_login():

@@ -480,7 +480,10 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
         """
         msg.attach(MIMEText(html, "html"))
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        smtp_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(st.secrets.get("SMTP_PORT", 465))
+
+        with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
             server.login(smtp_email, smtp_password)
             server.sendmail(smtp_email, korisnik_email, msg.as_string())
         return True, "ok"

@@ -16,7 +16,7 @@ import streamlit as st
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-ADMIN_EMAIL = "semir.mehovic1989@gmail.com"
+ADMIN_EMAIL = "info@farmaceutupraksi.ba"
 
 # ─── Page config (mora biti prva Streamlit komanda) ───────────────────────────
 st.set_page_config(

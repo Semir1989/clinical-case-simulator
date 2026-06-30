@@ -487,10 +487,18 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
         smtp_host = st.secrets.get("SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(st.secrets.get("SMTP_PORT", 465))
 
-        with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
-            server.login(smtp_email, smtp_password)
-            server.sendmail(smtp_email, korisnik_email, msg.as_string())
-        return True, "ok"
+        try:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                server.login(smtp_email, smtp_password)
+                server.sendmail(smtp_email, korisnik_email, msg.as_string())
+            return True, "ok"
+        except (OSError, smtplib.SMTPException):
+            # Fallback: port 587 sa STARTTLS
+            with smtplib.SMTP(smtp_host, 587, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_email, smtp_password)
+                server.sendmail(smtp_email, korisnik_email, msg.as_string())
+            return True, "ok"
     except Exception as e:
         return False, str(e)
 

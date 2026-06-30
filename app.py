@@ -415,21 +415,25 @@ def db_neodobreni_korisnici():
 
 def db_odobri_korisnika(email):
     if not db:
+        st.error("Baza podataka nije dostupna.")
         return False
     try:
         db.table("users").update({"approved": True}).eq("email", email).execute()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"DB greška (odobri): {e}")
         return False
 
 
 def db_odbij_korisnika(email):
     if not db:
+        st.error("Baza podataka nije dostupna.")
         return False
     try:
         db.table("users").delete().eq("email", email).execute()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"DB greška (odbij): {e}")
         return False
 
 
@@ -755,6 +759,27 @@ def prikazi_moje_rezultate():
 def prikazi_admin():
     st.markdown("## 👑 Admin panel")
 
+    # ── Obradi akciju iz session_state (ako postoji) ──
+    akcija = st.session_state.pop("admin_akcija", None)
+    if akcija:
+        email_k = akcija["email"]
+        ime_k = akcija["ime"]
+        if akcija["tip"] == "odobri":
+            if db_odobri_korisnika(email_k):
+                st.success(f"Odobren: **{ime_k}** ({email_k})")
+                ok, msg = posalji_email_odobrenje(email_k, ime_k)
+                if ok:
+                    st.success("Email notifikacija poslana!", icon="📧")
+                else:
+                    st.warning(f"Email nije poslan: {msg}", icon="📧")
+            else:
+                st.error(f"Greška pri odobravanju korisnika {email_k}.")
+        elif akcija["tip"] == "odbij":
+            if db_odbij_korisnika(email_k):
+                st.info(f"Korisnik **{ime_k}** odbijen i obrisan.")
+            else:
+                st.error(f"Greška pri brisanju korisnika {email_k}.")
+
     # ── Zahtjevi na čekanju ──
     st.markdown("### 📬 Zahtjevi na čekanju")
     neodobreni = db_neodobreni_korisnici()
@@ -767,40 +792,34 @@ def prikazi_admin():
         </div>""", unsafe_allow_html=True)
     else:
         st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.", icon="📬")
-        for k in neodobreni:
-            with st.container():
-                st.markdown(f"""
-                <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:10px;
-                     box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #f59e0b">
-                    <div style="font-weight:700;color:#1e293b">{k.get('full_name','—')}</div>
-                    <div style="font-size:13px;color:#64748b;margin-top:3px">
-                        📧 {k['email']} · 🏥 {k.get('institution','—')}
-                    </div>
-                    <div style="font-size:12px;color:#94a3b8;margin-top:2px">
-                        Registrovan: {str(k.get('created_at',''))[:16]}
-                    </div>
-                </div>""", unsafe_allow_html=True)
+        for i, k in enumerate(neodobreni):
+            st.markdown(f"""
+            <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:4px;
+                 box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #f59e0b">
+                <div style="font-weight:700;color:#1e293b">{k.get('full_name','—')}</div>
+                <div style="font-size:13px;color:#64748b;margin-top:3px">
+                    📧 {k['email']} · 🏥 {k.get('institution','—')}
+                </div>
+                <div style="font-size:12px;color:#94a3b8;margin-top:2px">
+                    Registrovan: {str(k.get('created_at',''))[:16]}
+                </div>
+            </div>""", unsafe_allow_html=True)
 
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    if st.button("✅ Odobri", key=f"odobri_{k['email']}", type="primary", use_container_width=True):
-                        if db_odobri_korisnika(k["email"]):
-                            ok, msg = posalji_email_odobrenje(k["email"], k.get("full_name", k["email"]))
-                            if ok:
-                                st.success(f"Odobren: {k.get('full_name','')} — email poslan!")
-                            else:
-                                st.success(f"Odobren: {k.get('full_name','')}.")
-                                st.warning(f"Email nije poslan: {msg}", icon="📧")
-                            st.rerun()
-                        else:
-                            st.error("Greška pri odobravanju.")
-                with col_b:
-                    if st.button("❌ Odbij", key=f"odbij_{k['email']}", use_container_width=True):
-                        if db_odbij_korisnika(k["email"]):
-                            st.info(f"Korisnik {k.get('full_name','')} odbijen i obrisan.")
-                            st.rerun()
-                        else:
-                            st.error("Greška pri brisanju.")
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if st.button("✅ Odobri", key=f"odobri_{i}", type="primary", use_container_width=True):
+                    st.session_state["admin_akcija"] = {
+                        "tip": "odobri", "email": k["email"],
+                        "ime": k.get("full_name", k["email"]),
+                    }
+                    st.rerun()
+            with col_b:
+                if st.button("❌ Odbij", key=f"odbij_{i}", type="secondary", use_container_width=True):
+                    st.session_state["admin_akcija"] = {
+                        "tip": "odbij", "email": k["email"],
+                        "ime": k.get("full_name", k["email"]),
+                    }
+                    st.rerun()
 
     st.divider()
 

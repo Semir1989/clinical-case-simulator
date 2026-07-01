@@ -446,47 +446,62 @@ def db_svi_korisnici():
         return []
 
 
-# ─── Email notifikacija (EmailJS) ────────────────────────────────────────────
+# ─── Email notifikacija (Resend) ─────────────────────────────────────────────
 def posalji_email_odobrenje(korisnik_email, korisnik_ime):
     try:
-        service_id = st.secrets.get("EMAILJS_SERVICE_ID", "")
-        template_id = st.secrets.get("EMAILJS_TEMPLATE_ID", "")
-        public_key = st.secrets.get("EMAILJS_PUBLIC_KEY", "")
+        api_key = st.secrets.get("RESEND_API_KEY", "")
+        from_email = st.secrets.get("RESEND_FROM", "onboarding@resend.dev")
 
-        if not all([service_id, template_id, public_key]):
-            return False, "EmailJS credentials nisu konfigurisani (EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY)."
+        if not api_key:
+            return False, "RESEND_API_KEY nije konfigurisan u secrets."
+
+        html = f"""
+        <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
+            <div style="text-align:center;margin-bottom:24px">
+                <h2 style="color:#0D8A9E;margin:0">Clinical Case Simulator</h2>
+                <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
+            </div>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
+                <div style="font-size:32px;margin-bottom:8px">✅</div>
+                <div style="font-size:18px;font-weight:600;color:#166534">Nalog odobren!</div>
+            </div>
+            <p style="color:#1e293b;font-size:15px;line-height:1.6">
+                Poštovani/a <strong>{korisnik_ime}</strong>,
+            </p>
+            <p style="color:#1e293b;font-size:15px;line-height:1.6">
+                Vaš nalog na platformi <strong>Clinical Case Simulator</strong> je odobren.
+                Sada se možete prijaviti i započeti rad na kliničkim scenarijima.
+            </p>
+            <p style="color:#64748b;font-size:13px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px">
+                Edu Pharma Community · Farmaceutski trening
+            </p>
+        </div>
+        """
 
         payload = json.dumps({
-            "service_id": service_id,
-            "template_id": template_id,
-            "user_id": public_key,
-            "template_params": {
-                "to_email": korisnik_email,
-                "to_name": korisnik_ime,
-                "subject": "Vaš nalog je odobren — Clinical Case Simulator",
-                "message": (
-                    f"Poštovani/a {korisnik_ime},\n\n"
-                    "Vaš nalog na platformi Clinical Case Simulator je odobren. "
-                    "Sada se možete prijaviti i započeti rad na kliničkim scenarijima.\n\n"
-                    "Edu Pharma Community · Farmaceutski trening"
-                ),
-            },
+            "from": from_email,
+            "to": [korisnik_email],
+            "subject": "Vaš nalog je odobren — Clinical Case Simulator",
+            "html": html,
         }).encode("utf-8")
 
         req = urllib.request.Request(
-            "https://api.emailjs.com/api/v1.0/email/send",
+            "https://api.resend.com/emails",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
-            if resp.status == 200:
+            if resp.status in (200, 201):
                 return True, "ok"
             else:
-                return False, f"EmailJS status: {resp.status}"
+                return False, f"Resend status: {resp.status}"
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        return False, f"EmailJS HTTP {e.code}: {body}"
+        return False, f"Resend HTTP {e.code}: {body}"
     except Exception as e:
         return False, str(e)
 
@@ -829,10 +844,9 @@ def prikazi_admin():
     test_email = st.text_input("Email za test:", placeholder="apotekesarajevosindikat@gmail.com")
     if st.button("📨 Pošalji testni email", type="primary"):
         if test_email:
-            sid = st.secrets.get("EMAILJS_SERVICE_ID", "")
-            tid = st.secrets.get("EMAILJS_TEMPLATE_ID", "")
-            pk = st.secrets.get("EMAILJS_PUBLIC_KEY", "")
-            st.info(f"EmailJS config: service=`{sid}`, template=`{tid}`, key={'✅' if pk else '❌ NEDOSTAJE'}")
+            rk = st.secrets.get("RESEND_API_KEY", "")
+            rf = st.secrets.get("RESEND_FROM", "onboarding@resend.dev")
+            st.info(f"Resend config: from=`{rf}`, API key={'✅' if rk else '❌ NEDOSTAJE'}")
 
             ok, msg = posalji_email_odobrenje(test_email, "Test Korisnik")
             if ok:

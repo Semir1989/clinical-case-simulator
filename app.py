@@ -628,7 +628,7 @@ KAZNA: dao kortikosteroid trudnici = 0/10 za Sigurnost""",
         "ime": "Amra",
         "godine": 33,
         "tegoba": "epizode lupanja srca koje traju već nekoliko dana, došla po nešto za smirenje",
-        "terapija": "ne koristi lijekove na recept; uzima biljni dodatak prehrani od prije tri sedmice",
+        "terapija": "od prije 3 mjeseca koristi lijekove na recept, kvetiapin 100 mg i sertralin 50 mg",
         "skriveni_detalji": (
             "Ima bračne probleme i osjećaj potištenosti koji traje oko mjesec dana; "
             "prije tri sedmice počela uzimati biljni dodatak prehrani u kapsulama koji joj je preporučila prijateljica "

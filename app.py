@@ -270,70 +270,38 @@ hr { border-color: #D4EEF2 !important; }
         font-weight: 700 !important;
     }
 }
-/* ── Mobile: sakrij default hamburger, custom će ga zamijeniti ── */
+/* ── Mobile: istakni Streamlit-ov ugrađeni hamburger ── */
 @media (max-width: 768px) {
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"] {
-        display: none !important;
+    [data-testid="stSidebarCollapsedControl"] {
+        background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 4px 16px rgba(13,138,158,0.5) !important;
+        border: 2px solid rgba(255,255,255,0.7) !important;
+        top: 10px !important;
+        left: 10px !important;
+        padding: 6px !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        z-index: 999999 !important;
+        animation: menuPulse 2s ease-in-out 3 !important;
     }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ─── Floating meni dugme — SAMO mobilni (sakriveno na desktopu putem CSS) ────
-st.markdown("""
-<div id="menuBtn" onclick="
-    var sb = window.parent.document.querySelector('[data-testid=stSidebar]');
-    var ctrl = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl] button')
-             || window.parent.document.querySelector('[data-testid=collapsedControl] button');
-    if (sb && sb.getAttribute('aria-expanded') === 'true') {
-        var closeBtn = sb.querySelector('button[kind=header]')
-                     || sb.querySelector('[data-testid=stSidebarNavButton]');
-        if (closeBtn) closeBtn.click();
-    } else if (ctrl) {
-        ctrl.click();
-    } else if (sb) {
-        sb.setAttribute('aria-expanded', 'true');
-        sb.style.display = 'block';
-        sb.style.transform = 'none';
+    [data-testid="stSidebarCollapsedControl"] button {
+        background: transparent !important;
+        border: none !important;
+        color: white !important;
+        padding: 8px !important;
     }
-" style="
-    position: fixed;
-    top: 14px;
-    left: 14px;
-    z-index: 999999;
-    width: 52px;
-    height: 52px;
-    background: linear-gradient(135deg, #1CB5C5, #0D8A9E);
-    border-radius: 14px;
-    display: none;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 4px 16px rgba(13,138,158,0.5);
-    border: 2px solid rgba(255,255,255,0.7);
-    transition: all 0.2s ease;
-    user-select: none;
-">
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"
-         stroke-linecap="round" stroke-linejoin="round">
-        <line x1="3" y1="6" x2="21" y2="6"></line>
-        <line x1="3" y1="12" x2="21" y2="12"></line>
-        <line x1="3" y1="18" x2="21" y2="18"></line>
-    </svg>
-</div>
-<style>
-    /* Prikaži custom dugme SAMO na mobilnom */
-    @media (max-width: 768px) {
-        #menuBtn {
-            display: flex !important;
-            animation: menuPulse 2s ease-in-out 3;
-        }
+    [data-testid="stSidebarCollapsedControl"] svg {
+        color: white !important;
+        width: 26px !important;
+        height: 26px !important;
+        stroke: white !important;
     }
     @keyframes menuPulse {
         0%, 100% { box-shadow: 0 4px 16px rgba(13,138,158,0.5); }
         50% { box-shadow: 0 4px 28px rgba(13,138,158,0.85), 0 0 0 8px rgba(28,181,197,0.2); }
     }
+}
 </style>
 """, unsafe_allow_html=True)
 

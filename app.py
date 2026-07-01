@@ -6,6 +6,7 @@ Supabase backend · Leaderboard · Cross-device persistence · Beautiful UI
 import json
 import os
 import hashlib
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
@@ -241,6 +242,18 @@ hr { border-color: #D4EEF2 !important; }
     box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
 }
 
+/* ── Login/Registracija — veći font u formi ── */
+[data-testid="stForm"] label {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: #1e293b !important;
+}
+[data-testid="stForm"] .stFormSubmitButton button {
+    font-size: 17px !important;
+    font-weight: 700 !important;
+    padding: 12px 20px !important;
+}
+
 /* ── Sidebar radio navigacija — veća slova ── */
 [data-testid="stSidebar"] [role="radiogroup"] label {
     font-size: 17px !important;
@@ -445,28 +458,41 @@ def db_leaderboard(period):
         else:
             od = "2020-01-01T00:00:00+00:00"
 
-        r = db.table("attempts").select("user_email, score").gte("completed_at", od).execute()
+        r = db.table("attempts").select("user_email, score, anamneza, komunikacija, sigurnost").gte("completed_at", od).execute()
         if not r.data:
             return []
 
-        skupovi = defaultdict(list)
+        skupovi = defaultdict(lambda: {"scores": [], "anamneza": [], "komunikacija": [], "sigurnost": []})
         for row in r.data:
-            skupovi[row["user_email"]].append(float(row["score"]))
+            skupovi[row["user_email"]]["scores"].append(float(row["score"]))
+            if row.get("anamneza") is not None:
+                skupovi[row["user_email"]]["anamneza"].append(float(row["anamneza"]))
+            if row.get("komunikacija") is not None:
+                skupovi[row["user_email"]]["komunikacija"].append(float(row["komunikacija"]))
+            if row.get("sigurnost") is not None:
+                skupovi[row["user_email"]]["sigurnost"].append(float(row["sigurnost"]))
 
         emailovi = list(skupovi.keys())
         im = db.table("users").select("email, full_name, institution").in_("email", emailovi).execute()
         info = {u["email"]: u for u in im.data}
 
         lista = []
-        for email, scores in skupovi.items():
-            k = info.get(email, {})
+        for em, data in skupovi.items():
+            k = info.get(em, {})
+            scores = data["scores"]
+            avg_a = round(sum(data["anamneza"]) / len(data["anamneza"]), 1) if data["anamneza"] else 0
+            avg_k = round(sum(data["komunikacija"]) / len(data["komunikacija"]), 1) if data["komunikacija"] else 0
+            avg_s = round(sum(data["sigurnost"]) / len(data["sigurnost"]), 1) if data["sigurnost"] else 0
             lista.append({
-                "email": email,
-                "ime": k.get("full_name", email),
+                "email": em,
+                "ime": k.get("full_name", em),
                 "institucija": k.get("institution", ""),
                 "ukupno": round(sum(scores), 2),
                 "slucajeva": len(scores),
                 "prosjek": round(sum(scores) / len(scores), 2),
+                "avg_anamneza": avg_a,
+                "avg_komunikacija": avg_k,
+                "avg_sigurnost": avg_s,
             })
 
         lista.sort(key=lambda x: x["ukupno"], reverse=True)
@@ -817,20 +843,32 @@ def prikazi_leaderboard():
                 je_ja = red["email"] == ja
                 bg = "linear-gradient(135deg,#dbeafe,#eff6ff)" if je_ja else "white"
                 border = "border:2px solid #1a3a8f;" if je_ja else ""
+                avg_a = red.get('avg_anamneza', 0)
+                avg_k = red.get('avg_komunikacija', 0)
+                avg_s = red.get('avg_sigurnost', 0)
                 st.markdown(f"""
                 <div style="background:{bg};{border}border-radius:14px;padding:14px 20px;
-                     margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07);
-                     display:flex;align-items:center;gap:12px">
-                    <div style="font-size:24px;min-width:36px;text-align:center">{medalja}</div>
-                    <div style="flex:1;min-width:0">
-                        <div style="font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                            {red['ime']}{' (vi)' if je_ja else ''}
+                     margin-bottom:8px;box-shadow:0 1px 4px rgba(0,0,0,0.07)">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+                        <div style="font-size:24px;min-width:36px;text-align:center">{medalja}</div>
+                        <div style="flex:1;min-width:0">
+                            <div style="font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                                {red['ime']}{' (vi)' if je_ja else ''}
+                            </div>
+                            <div style="font-size:13px;color:#64748b">{red['institucija']} · {red['slucajeva']} slučaj/eva</div>
                         </div>
-                        <div style="font-size:13px;color:#64748b">{red['institucija']} · {red['slucajeva']} slučaj/eva</div>
+                        <div style="text-align:right;flex-shrink:0">
+                            <div style="font-size:26px;font-weight:800;color:#1a3a8f">{red['ukupno']:.1f}</div>
+                            <div style="font-size:12px;color:#94a3b8">bodova</div>
+                        </div>
                     </div>
-                    <div style="text-align:right;flex-shrink:0">
-                        <div style="font-size:26px;font-weight:800;color:#1a3a8f">{red['ukupno']:.1f}</div>
-                        <div style="font-size:12px;color:#94a3b8">bodova</div>
+                    <div style="display:flex;gap:8px;margin-left:48px">
+                        <span style="background:#e0f2fe;color:#0369a1;padding:3px 10px;border-radius:10px;
+                              font-size:11px;font-weight:600">Anamneza {avg_a}</span>
+                        <span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:10px;
+                              font-size:11px;font-weight:600">Komunikacija {avg_k}</span>
+                        <span style="background:#fce7f3;color:#9d174d;padding:3px 10px;border-radius:10px;
+                              font-size:11px;font-weight:600">Sigurnost {avg_s}</span>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1002,55 +1040,82 @@ def prikazi_login():
         </div>
         """, unsafe_allow_html=True)
 
-        tab_l, tab_r = st.tabs(["Prijava", "Registracija"])
+        # ── Prijava sekcija ──
+        st.markdown("""
+        <div style='background:white;border-radius:16px;padding:24px;margin-bottom:20px;
+             box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid #0D8A9E'>
+            <div style='font-size:20px;font-weight:700;color:#1e293b;margin-bottom:4px'>Prijava</div>
+            <div style='font-size:14px;color:#64748b'>Unesite podatke za pristup svom nalogu</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        with tab_l:
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            with st.form("login_form"):
-                email = st.text_input("Email adresa", placeholder="vas@email.com")
-                lozinka = st.text_input("Lozinka", type="password", placeholder="••••••••")
-                submit = st.form_submit_button("Prijavi se →", type="primary", use_container_width=True)
+        with st.form("login_form"):
+            email = st.text_input("Email adresa", placeholder="Upišite vaš email")
+            lozinka = st.text_input("Lozinka", type="password", placeholder="Upišite vašu lozinku", autocomplete="off")
+            submit = st.form_submit_button("Prijavi se", type="primary", use_container_width=True)
 
-            if submit:
-                if not email or not lozinka:
-                    st.error("Unesite email i lozinku.")
+        if submit:
+            if not email or not lozinka:
+                st.error("Unesite email i lozinku.")
+            else:
+                k, poruka = db_login(email, lozinka)
+                if k:
+                    st.session_state.update({
+                        "ulogovan": True,
+                        "korisnik": k,
+                        "korisnik_email": k["email"],
+                        "korisnik_ime": k.get("full_name", email),
+                    })
+                    st.rerun()
                 else:
-                    k, poruka = db_login(email, lozinka)
-                    if k:
-                        st.session_state.update({
-                            "ulogovan": True,
-                            "korisnik": k,
-                            "korisnik_email": k["email"],
-                            "korisnik_ime": k.get("full_name", email),
-                        })
-                        st.rerun()
-                    else:
-                        st.error(poruka)
+                    st.error(poruka)
 
-        with tab_r:
-            st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-            with st.form("reg_form"):
-                ime = st.text_input("Ime i prezime", placeholder="Amira Hodžić")
-                email_r = st.text_input("Email", placeholder="amira@apoteka.ba", key="er")
-                institucija = st.text_input("Apoteka / Institucija", placeholder="Apoteka Centar, Sarajevo")
-                loz1 = st.text_input("Lozinka", type="password", key="l1")
-                loz2 = st.text_input("Ponovi lozinku", type="password", key="l2")
-                submit_r = st.form_submit_button("Pošalji zahtjev", use_container_width=True)
+        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
 
-            if submit_r:
-                if not all([ime, email_r, loz1, loz2]):
-                    st.error("Popunite sva polja.")
-                elif loz1 != loz2:
-                    st.error("Lozinke se ne podudaraju.")
-                elif len(loz1) < 6:
-                    st.error("Lozinka mora imati min. 6 znakova.")
+        # ── Registracija sekcija ──
+        st.markdown("""
+        <div style='background:white;border-radius:16px;padding:24px;margin-bottom:20px;
+             box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid #64748b'>
+            <div style='font-size:20px;font-weight:700;color:#1e293b;margin-bottom:4px'>Registracija</div>
+            <div style='font-size:14px;color:#64748b'>Nemate nalog? Pošaljite zahtjev za pristup</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("reg_form"):
+            ime = st.text_input("Ime i prezime", placeholder="Upišite vaše ime i prezime")
+            email_r = st.text_input("Email adresa", placeholder="Upišite vaš email", key="er")
+            institucija = st.text_input("Apoteka / Institucija", placeholder="Upišite naziv apoteke ili institucije")
+            loz1 = st.text_input("Lozinka", type="password", placeholder="Upišite lozinku (min. 6 znakova)", key="l1", autocomplete="new-password")
+            loz2 = st.text_input("Ponovite lozinku", type="password", placeholder="Ponovite lozinku", key="l2", autocomplete="new-password")
+            submit_r = st.form_submit_button("Pošalji zahtjev za registraciju", use_container_width=True)
+
+        if submit_r:
+            if not all([ime, email_r, loz1, loz2]):
+                st.error("Popunite sva polja.")
+            elif loz1 != loz2:
+                st.error("Lozinke se ne podudaraju.")
+            elif len(loz1) < 6:
+                st.error("Lozinka mora imati min. 6 znakova.")
+            else:
+                ok, poruka = db_registruj(email_r, loz1, ime, institucija)
+                if ok:
+                    st.success("Zahtjev primljen! Bit ćete obaviješteni kada admin odobri pristup.")
+                    st.info("Kontakt za ubrzanje odobravanja: semir.mehovic1989@gmail.com")
                 else:
-                    ok, poruka = db_registruj(email_r, loz1, ime, institucija)
-                    if ok:
-                        st.success("Zahtjev primljen! Bit ćete obaviješteni kada admin odobri pristup.")
-                        st.info("Kontakt za ubrzanje odobravanja: semir.mehovic1989@gmail.com")
-                    else:
-                        st.error(poruka)
+                    st.error(poruka)
+
+        # ── Disable autocomplete putem JS ──
+        st.markdown("""
+        <script>
+        const inputs = window.parent.document.querySelectorAll('input[type="password"]');
+        inputs.forEach(el => {
+            el.setAttribute('autocomplete', 'off');
+            el.setAttribute('autocorrect', 'off');
+            el.setAttribute('autocapitalize', 'off');
+            el.setAttribute('spellcheck', 'false');
+        });
+        </script>
+        """, unsafe_allow_html=True)
 
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
         st.warning("Alat je isključivo za **edukaciju i vježbu farmaceutskog savjetovanja**. Nije namijenjen kliničkom odlučivanju.")
@@ -1107,10 +1172,13 @@ odabrani_id = st.session_state.get("odabrani_scenarij", None)
 # ─── Ako nema odabranog scenarija → prikaži kartice ──────────────────────────
 if odabrani_id is None:
     st.markdown("## Klinički slučajevi")
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-    for sc_id, sc in SCENARIJI.items():
-        uradjen = db_vec_uradio(email, sc_id)
+    # Sortiraj: nezavršeni prvi, završeni ispod
+    svi = list(SCENARIJI.items())
+    nezavrseni = [(sid, sc) for sid, sc in svi if not db_vec_uradio(email, sid)]
+    zavrseni = [(sid, sc) for sid, sc in svi if db_vec_uradio(email, sid)]
+
+    def prikazi_karticu(sc_id, sc, uradjen):
         status_bg = "#dcfce7" if uradjen else "#dbeafe"
         status_boja = "#16a34a" if uradjen else "#0D8A9E"
         status_tekst = "Završeno" if uradjen else "Dostupno"
@@ -1143,6 +1211,16 @@ if odabrani_id is None:
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
+    if nezavrseni:
+        st.markdown(f"### Nezavršeni scenariji ({len(nezavrseni)})")
+        for sc_id, sc in nezavrseni:
+            prikazi_karticu(sc_id, sc, False)
+
+    if zavrseni:
+        st.markdown(f"### Završeni scenariji ({len(zavrseni)})")
+        for sc_id, sc in zavrseni:
+            prikazi_karticu(sc_id, sc, True)
+
     st.stop()
 
 # ─── Odabrani scenarij — prikaz ──────────────────────────────────────────────
@@ -1173,6 +1251,7 @@ if kljuc not in st.session_state:
     st.session_state[kljuc] = {
         "poruke_api": [], "poruke_prikaz": [],
         "ocjena": None, "zavrseno": False, "broj_poteza": 0,
+        "zadnji_potez_vrijeme": time.time(),
     }
 stanje = st.session_state[kljuc]
 
@@ -1206,13 +1285,75 @@ if not stanje["poruke_prikaz"]:
 
 if not stanje["zavrseno"]:
     preostalo = MAX_POTEZA - stanje["broj_poteza"]
-    st.caption(f"Preostalo unosa: **{preostalo} / {MAX_POTEZA}**")
+
+    # ── Tajmer: provjeri da li je isteklo 60s od zadnjeg poteza ──
+    TAJMER_SEKUNDI = 60
+    sad = time.time()
+    if "zadnji_potez_vrijeme" not in stanje:
+        stanje["zadnji_potez_vrijeme"] = sad
+
+    proteklo = sad - stanje["zadnji_potez_vrijeme"]
+    propusteni = int(proteklo // TAJMER_SEKUNDI)
+
+    if propusteni > 0 and preostalo > 0:
+        stanje["broj_poteza"] += min(propusteni, preostalo)
+        stanje["zadnji_potez_vrijeme"] = sad
+        preostalo = MAX_POTEZA - stanje["broj_poteza"]
+        if preostalo <= 0:
+            st.warning("Vrijeme je isteklo za sve pokušaje. Savjetovanje se završava.")
+            pokreni_evaluaciju(stanje, sc, odabrani_id)
+            st.rerun()
+        else:
+            st.warning(f"Izgubili ste {min(propusteni, preostalo + propusteni)} pokušaj/a jer niste odgovorili na vrijeme.")
+            st.rerun()
+
+    preostalo_s = int(TAJMER_SEKUNDI - (proteklo % TAJMER_SEKUNDI))
+
+    # Prikaz preostalih pokušaja + tajmer
+    t_col1, t_col2 = st.columns([1, 1])
+    with t_col1:
+        st.caption(f"Preostalo unosa: **{preostalo} / {MAX_POTEZA}**")
+    with t_col2:
+        st.caption(f"Vrijeme za odgovor: **{preostalo_s}s**")
+
+    # JavaScript countdown tajmer
+    st.markdown(f"""
+    <div id="timerBar" style="background:#e2e8f0;border-radius:8px;height:6px;margin:-8px 0 16px;overflow:hidden">
+        <div id="timerFill" style="background:linear-gradient(90deg,#1CB5C5,#0D8A9E);height:100%;
+             width:{(preostalo_s/TAJMER_SEKUNDI)*100}%;border-radius:8px;transition:width 1s linear"></div>
+    </div>
+    <script>
+    (function() {{
+        var remaining = {preostalo_s};
+        var total = {TAJMER_SEKUNDI};
+        var fill = window.parent.document.getElementById('timerFill');
+        if (!fill) return;
+        var interval = setInterval(function() {{
+            remaining--;
+            if (remaining <= 0) {{
+                clearInterval(interval);
+                // Streamlit rerun — simuliraj klik na hidden element
+                window.parent.location.reload();
+                return;
+            }}
+            var pct = (remaining / total) * 100;
+            fill.style.width = pct + '%';
+            if (remaining <= 10) {{
+                fill.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
+            }} else if (remaining <= 20) {{
+                fill.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)';
+            }}
+        }}, 1000);
+    }})();
+    </script>
+    """, unsafe_allow_html=True)
 
     unos = st.chat_input("Vaš odgovor kao farmaceut...")
     if unos:
         stanje["poruke_prikaz"].append({"role": "user", "content": unos})
         stanje["poruke_api"].append({"role": "user", "content": unos})
         stanje["broj_poteza"] += 1
+        stanje["zadnji_potez_vrijeme"] = time.time()
         with st.chat_message("user"):
             st.markdown(unos)
 

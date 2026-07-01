@@ -43,54 +43,10 @@ html, body, [class*="css"] {
 }
 #MainMenu, footer { visibility: hidden; }
 
-/* ── Sidebar toggle dugme (hamburger) — istaknutije ── */
+/* ── Sidebar collapse control — sakrij Streamlit default ── */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"] {
-    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
-    border-radius: 12px !important;
-    padding: 8px !important;
-    box-shadow: 0 4px 14px rgba(13,138,158,0.45) !important;
-    border: 2px solid rgba(255,255,255,0.6) !important;
-    top: 12px !important;
-    left: 12px !important;
-    width: 44px !important;
-    height: 44px !important;
-    z-index: 999999 !important;
-}
-[data-testid="stSidebarCollapsedControl"] svg,
-[data-testid="collapsedControl"] svg,
-[data-testid="stSidebarCollapsedControl"] button,
-[data-testid="collapsedControl"] button {
-    color: white !important;
-    width: 28px !important;
-    height: 28px !important;
-}
-[data-testid="stSidebarCollapsedControl"]:hover,
-[data-testid="collapsedControl"]:hover {
-    box-shadow: 0 6px 20px rgba(13,138,158,0.6) !important;
-    transform: scale(1.08) !important;
-}
-/* Sidebar nav button (stSidebarNavButton) */
-[data-testid="stSidebarNavButton"],
-button[kind="header"] {
-    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
-    border-radius: 12px !important;
-    padding: 8px !important;
-    box-shadow: 0 4px 14px rgba(13,138,158,0.45) !important;
-    border: 2px solid rgba(255,255,255,0.6) !important;
-    min-width: 44px !important;
-    min-height: 44px !important;
-}
-[data-testid="stSidebarNavButton"] svg,
-button[kind="header"] svg {
-    color: white !important;
-    width: 28px !important;
-    height: 28px !important;
-}
-[data-testid="stSidebarNavButton"]:hover,
-button[kind="header"]:hover {
-    box-shadow: 0 6px 20px rgba(13,138,158,0.6) !important;
-    transform: scale(1.08) !important;
+    display: none !important;
 }
 
 /* ── Pozadina ── */
@@ -305,25 +261,60 @@ hr { border-color: #D4EEF2 !important; }
         font-size: 19px !important;
         font-weight: 700 !important;
     }
-    /* Hamburger — još istaknutiji na mobilnom */
-    [data-testid="stSidebarCollapsedControl"],
-    [data-testid="collapsedControl"],
-    [data-testid="stSidebarNavButton"],
-    button[kind="header"] {
-        width: 50px !important;
-        height: 50px !important;
-        min-width: 50px !important;
-        min-height: 50px !important;
-        top: 10px !important;
-        left: 10px !important;
-        box-shadow: 0 4px 18px rgba(13,138,158,0.55) !important;
-        animation: menuPulse 2.5s ease-in-out 3;
-    }
-    @keyframes menuPulse {
-        0%, 100% { box-shadow: 0 4px 18px rgba(13,138,158,0.55); }
-        50% { box-shadow: 0 4px 28px rgba(13,138,158,0.85), 0 0 0 6px rgba(28,181,197,0.2); }
-    }
 }
+</style>
+""", unsafe_allow_html=True)
+
+# ─── Floating meni dugme (custom HTML/JS) ────────────────────────────────────
+st.markdown("""
+<div id="menuBtn" onclick="
+    var sb = window.parent.document.querySelector('[data-testid=stSidebar]');
+    var ctrl = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl] button')
+             || window.parent.document.querySelector('[data-testid=collapsedControl] button');
+    if (sb && sb.getAttribute('aria-expanded') === 'true') {
+        var closeBtn = sb.querySelector('button[kind=header]')
+                     || sb.querySelector('[data-testid=stSidebarNavButton]');
+        if (closeBtn) closeBtn.click();
+    } else if (ctrl) {
+        ctrl.click();
+    } else if (sb) {
+        sb.setAttribute('aria-expanded', 'true');
+        sb.style.display = 'block';
+        sb.style.transform = 'none';
+    }
+" style="
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 999999;
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, #1CB5C5, #0D8A9E);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(13,138,158,0.5);
+    border: 2px solid rgba(255,255,255,0.7);
+    transition: all 0.2s ease;
+    user-select: none;
+" onmouseover="this.style.transform='scale(1.1)';this.style.boxShadow='0 6px 22px rgba(13,138,158,0.65)'"
+  onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(13,138,158,0.5)'"
+>
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"
+         stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="6" x2="21" y2="6"></line>
+        <line x1="3" y1="12" x2="21" y2="12"></line>
+        <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+</div>
+<style>
+    #menuBtn { animation: menuPulse 2s ease-in-out 3; }
+    @keyframes menuPulse {
+        0%, 100% { box-shadow: 0 4px 16px rgba(13,138,158,0.5); }
+        50% { box-shadow: 0 4px 28px rgba(13,138,158,0.85), 0 0 0 8px rgba(28,181,197,0.2); }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1109,54 +1100,72 @@ if "Admin" in stranica:
 
 # ─── SCENARIJI ───────────────────────────────────────────────────────────────
 st.warning("Alat je isključivo za **edukaciju i vježbu**. Nije podrška kliničkom odlučivanju.")
-st.markdown("## Klinički slučajevi")
 
 email = st.session_state.get("korisnik_email", "")
+odabrani_id = st.session_state.get("odabrani_scenarij", None)
 
-# Kartice scenarija
-for sc_id, sc in SCENARIJI.items():
-    uradjen = db_vec_uradio(email, sc_id)
-    if uradjen:
+# ─── Ako nema odabranog scenarija → prikaži kartice ──────────────────────────
+if odabrani_id is None:
+    st.markdown("## Klinički slučajevi")
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    for sc_id, sc in SCENARIJI.items():
+        uradjen = db_vec_uradio(email, sc_id)
+        status_bg = "#dcfce7" if uradjen else "#dbeafe"
+        status_boja = "#16a34a" if uradjen else "#0D8A9E"
+        status_tekst = "Završeno" if uradjen else "Dostupno"
+        border_top = f"border-top: 4px solid {status_boja};"
+
         st.markdown(f"""
-        <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:10px;
-             box-shadow:0 1px 4px rgba(0,0,0,0.07);display:flex;align-items:center;gap:16px">
-            <div style="flex:1">
-                <div style="font-weight:700;color:#1e293b">{sc['naziv']}</div>
-                <div style="font-size:13px;color:#64748b;margin-top:3px">{sc['ime']}, {sc['godine']} god.</div>
+        <div style="background:white;border-radius:16px;padding:24px 28px;margin-bottom:16px;
+             box-shadow:0 2px 10px rgba(0,0,0,0.08);{border_top}">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <span style="background:{status_bg};color:{status_boja};padding:4px 14px;border-radius:20px;
+                      font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">{status_tekst}</span>
             </div>
-            <span style="background:#dcfce7;color:#16a34a;padding:5px 14px;border-radius:20px;
-                  font-size:13px;font-weight:600;flex-shrink:0">Završeno</span>
-        </div>""", unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:10px;
-             box-shadow:0 1px 4px rgba(0,0,0,0.07);display:flex;align-items:center;gap:16px;
-             border-left:4px solid #1a3a8f">
-            <div style="flex:1">
-                <div style="font-weight:700;color:#1e293b">{sc['naziv']}</div>
-                <div style="font-size:13px;color:#64748b;margin-top:3px">{sc['ime']}, {sc['godine']} god.</div>
+            <div style="font-weight:700;font-size:18px;color:#1e293b;margin-bottom:8px">{sc['naziv']}</div>
+            <div style="font-size:14px;color:#475569;line-height:1.5;margin-bottom:6px">
+                <strong>Pacijent:</strong> {sc['ime']}, {sc['godine']} god.
             </div>
-            <span style="background:#dbeafe;color:#1a3a8f;padding:5px 14px;border-radius:20px;
-                  font-size:13px;font-weight:600;flex-shrink:0">Dostupno</span>
+            <div style="font-size:14px;color:#475569;line-height:1.5;margin-bottom:6px">
+                <strong>Razlog posjete:</strong> {sc['tegoba']}
+            </div>
+            <div style="font-size:14px;color:#475569;line-height:1.5">
+                <strong>Terapija:</strong> {sc['terapija']}
+            </div>
         </div>""", unsafe_allow_html=True)
 
-st.divider()
+        btn_label = "Pogledaj rezultat" if uradjen else "Započni scenarij"
+        btn_type = "secondary" if uradjen else "primary"
+        if st.button(btn_label, key=f"btn_{sc_id}", type=btn_type, use_container_width=True):
+            st.session_state["odabrani_scenarij"] = sc_id
+            st.rerun()
 
-odabrani_id = st.selectbox(
-    "Odaberi scenarij za rad:",
-    list(SCENARIJI.keys()),
-    format_func=lambda k: SCENARIJI[k]["naziv"],
-)
+        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    st.stop()
+
+# ─── Odabrani scenarij — prikaz ──────────────────────────────────────────────
 sc = SCENARIJI[odabrani_id]
 vec_uradjen = db_vec_uradio(email, odabrani_id)
 
-with st.expander("Podaci o pacijentu", expanded=not vec_uradjen):
-    col1, col2 = st.columns(2)
-    col1.markdown(f"**Pacijent:** {sc['ime']}, {sc['godine']} god.")
-    col2.markdown(f"**Terapija:** {sc['terapija']}")
-    st.markdown(f"**Razlog posjete:** {sc['tegoba']}")
+if st.button("Nazad na listu scenarija", type="secondary"):
+    st.session_state["odabrani_scenarij"] = None
+    st.rerun()
 
-st.divider()
+st.markdown(f"## {sc['naziv']}")
+
+st.markdown(f"""
+<div style="background:white;border-radius:14px;padding:18px 22px;margin:12px 0;
+     box-shadow:0 1px 4px rgba(0,0,0,0.07)">
+    <div style="font-size:14px;color:#475569;line-height:1.7">
+        <strong>Pacijent:</strong> {sc['ime']}, {sc['godine']} god.<br>
+        <strong>Terapija:</strong> {sc['terapija']}<br>
+        <strong>Razlog posjete:</strong> {sc['tegoba']}
+    </div>
+</div>""", unsafe_allow_html=True)
+
+st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
 # ─── Session state ────────────────────────────────────────────────────────────
 kljuc = f"chat_{odabrani_id}"

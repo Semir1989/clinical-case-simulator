@@ -20,7 +20,6 @@ ADMIN_EMAIL = "info@farmaceutupraksi.ba"
 # ─── Page config (mora biti prva Streamlit komanda) ───────────────────────────
 st.set_page_config(
     page_title="Clinical Case Simulator · Edu Pharma",
-    page_icon="💊",
     layout="centered",
     initial_sidebar_state="expanded",
 )
@@ -29,20 +28,70 @@ st.set_page_config(
 # Tirkizna paleta · Mobile-first · Forsiran light mode
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
 
 /* ── Forsiran light mode — blokira dark prefers ── */
 :root {
     color-scheme: light only !important;
 }
 html, body, [class*="css"] {
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Poppins', sans-serif !important;
     color-scheme: light !important;
 }
 @media (prefers-color-scheme: dark) {
     html, body { background-color: #EEF6F8 !important; color: #1A2E3B !important; }
 }
 #MainMenu, footer { visibility: hidden; }
+
+/* ── Sidebar toggle dugme (hamburger) — istaknutije ── */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
+    border-radius: 12px !important;
+    padding: 8px !important;
+    box-shadow: 0 4px 14px rgba(13,138,158,0.45) !important;
+    border: 2px solid rgba(255,255,255,0.6) !important;
+    top: 12px !important;
+    left: 12px !important;
+    width: 44px !important;
+    height: 44px !important;
+    z-index: 999999 !important;
+}
+[data-testid="stSidebarCollapsedControl"] svg,
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] button,
+[data-testid="collapsedControl"] button {
+    color: white !important;
+    width: 28px !important;
+    height: 28px !important;
+}
+[data-testid="stSidebarCollapsedControl"]:hover,
+[data-testid="collapsedControl"]:hover {
+    box-shadow: 0 6px 20px rgba(13,138,158,0.6) !important;
+    transform: scale(1.08) !important;
+}
+/* Sidebar nav button (stSidebarNavButton) */
+[data-testid="stSidebarNavButton"],
+button[kind="header"] {
+    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
+    border-radius: 12px !important;
+    padding: 8px !important;
+    box-shadow: 0 4px 14px rgba(13,138,158,0.45) !important;
+    border: 2px solid rgba(255,255,255,0.6) !important;
+    min-width: 44px !important;
+    min-height: 44px !important;
+}
+[data-testid="stSidebarNavButton"] svg,
+button[kind="header"] svg {
+    color: white !important;
+    width: 28px !important;
+    height: 28px !important;
+}
+[data-testid="stSidebarNavButton"]:hover,
+button[kind="header"]:hover {
+    box-shadow: 0 6px 20px rgba(13,138,158,0.6) !important;
+    transform: scale(1.08) !important;
+}
 
 /* ── Pozadina ── */
 .stApp,
@@ -236,10 +285,44 @@ hr { border-color: #D4EEF2 !important; }
     box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
 }
 
+/* ── Sidebar radio navigacija — veća slova ── */
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    font-size: 17px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.2px !important;
+}
+[data-testid="stSidebar"] [role="radiogroup"] label p {
+    font-size: 17px !important;
+    font-weight: 600 !important;
+}
+
 /* ── Mobile optimizacija ── */
 @media (max-width: 768px) {
     [data-testid="block-container"] { padding: 12px !important; }
     .stButton > button { font-size: 14px !important; padding: 10px 16px !important; }
+    [data-testid="stSidebar"] [role="radiogroup"] label,
+    [data-testid="stSidebar"] [role="radiogroup"] label p {
+        font-size: 19px !important;
+        font-weight: 700 !important;
+    }
+    /* Hamburger — još istaknutiji na mobilnom */
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"],
+    [data-testid="stSidebarNavButton"],
+    button[kind="header"] {
+        width: 50px !important;
+        height: 50px !important;
+        min-width: 50px !important;
+        min-height: 50px !important;
+        top: 10px !important;
+        left: 10px !important;
+        box-shadow: 0 4px 18px rgba(13,138,158,0.55) !important;
+        animation: menuPulse 2.5s ease-in-out 3;
+    }
+    @keyframes menuPulse {
+        0%, 100% { box-shadow: 0 4px 18px rgba(13,138,158,0.55); }
+        50% { box-shadow: 0 4px 28px rgba(13,138,158,0.85), 0 0 0 6px rgba(28,181,197,0.2); }
+    }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -462,7 +545,7 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
                 <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
             </div>
             <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
-                <div style="font-size:32px;margin-bottom:8px">✅</div>
+                <div style="font-size:18px;font-weight:600;color:#166534;margin-bottom:8px">&#10003;</div>
                 <div style="font-size:18px;font-weight:600;color:#166534">Nalog odobren!</div>
             </div>
             <p style="color:#1e293b;font-size:15px;line-height:1.6">
@@ -530,11 +613,7 @@ SCENARIJI = {
             "odbija izdati bez recepta; savjetuje prekid oba preparata i hitnu posjetu ljekaru."
         ),
         "pocetna_poruka": "Dobro jutro, trebala bih još jednu Clobetasol kremu, ponestaje mi.",
-    },
-}
-
-RUBRIKA = """
-Ocijeni po ovim kategorijama (svaka 0-10):
+        "rubrika": """Ocijeni po ovim kategorijama (svaka 0-10):
 
 ANAMNEZA (tezina 0.4): pitao trajanje tegobe(2), sta koristi i koliko dugo(2), trudnocu/stanja(2), alergije(2), prepoznao zastavice(2)
 KAZNA: bez pitanja o trudnoci max 4/10; bez pitanja sta koristi max 6/10
@@ -542,8 +621,62 @@ KAZNA: bez pitanja o trudnoci max 4/10; bez pitanja sta koristi max 6/10
 KOMUNIKACIJA (tezina 0.3): jezik laika(2), empatija bez osudjivanja(2), provjerio razumijevanje(2), strukturisan razgovor(2), jasna poruka(2)
 
 SIGURNOST (tezina 0.3): odbio Clobetasol bez recepta(3), savjetovao prekid oba preparata(3), nije predlozio zamjensku terapiju(2), uputio ljekaru(2)
-KAZNA: dao kortikosteroid trudnici = 0/10 za Sigurnost
-"""
+KAZNA: dao kortikosteroid trudnici = 0/10 za Sigurnost""",
+    },
+    "scenarij_2": {
+        "naziv": "Scenarij 2 — Palpitacije i biljni dodatak prehrani",
+        "ime": "Amra",
+        "godine": 33,
+        "tegoba": "epizode lupanja srca koje traju već nekoliko dana, došla po nešto za smirenje",
+        "terapija": "ne koristi lijekove na recept; uzima biljni dodatak prehrani od prije tri sedmice",
+        "skriveni_detalji": (
+            "Ima bračne probleme i osjećaj potištenosti koji traje oko mjesec dana; "
+            "prije tri sedmice počela uzimati biljni dodatak prehrani u kapsulama koji joj je preporučila prijateljica "
+            "(na kutiji piše da je biljka sa žutim cvijetom, uzima 300 mg dnevno); "
+            "od prošle sedmice ima znojenje, nesanicu i česte epizode lupanja srca, "
+            "i u mirovanju i pri naporu, traju manje od minut i prestanu same; "
+            "sinoć je bila na plesanju salse i na plesnom podiju joj je srce počelo jako lupati, "
+            "trajalo je oko minut i uplašila se; "
+            "bila je kod ljekara — na prijemu su joj izmjerili puls 150-160 otkucaja, "
+            "krvni pritisak 110/68, uradili EKG koji je pokazao supraventrikularnu tahikardiju, "
+            "svi laboratorijski nalazi uredni (krvna slika, biohemija, troponin negativan), "
+            "uradili su ultrazvuk srca koji je bio potpuno uredan; "
+            "ljekar joj je rekao da je srce strukturno zdravo i da prekine sa tim biljnim dodatkom; "
+            "nije rekla ljekaru tačno šta uzima jer joj je bilo neugodno; "
+            "nema bolova u grudima, nema otežanog disanja, nije se onesvijestila; "
+            "ne koristi nikakve druge lijekove, ne puši, ne pije alkohol redovno"
+        ),
+        "crvene_zastavice": (
+            "Biljni dodatak sa žutim cvijetom = kantarion (Hypericum perforatum); "
+            "kantarion može izazvati supraventrikularnu tahikardiju čak i bez prethodne srčane bolesti; "
+            "vremenski slijed: simptomi počeli 3 sedmice nakon početka uzimanja; "
+            "kantarion je induktor CYP 3A4 enzima i može uzrokovati opasne interakcije sa mnogim lijekovima; "
+            "simptomi znojenja i nesanice mogu ukazivati na serotonergičke efekte kantariona; "
+            "potrebno je odmah prekinuti uzimanje dodatka i uputiti na kontrolu kod ljekara/kardiologa"
+        ),
+        "ocekivano": (
+            "Pita kako se osjeća i koje simptome ima; pita koliko dugo traju palpitacije i kada su počele; "
+            "pita da li uzima neke lijekove, dodatke prehrani ili biljne preparate; "
+            "pita detalje o biljnom dodatku (šta piše na kutiji, koliko dugo ga uzima, ko joj ga je preporučio); "
+            "prepoznaje vezu između biljnog dodatka (kantarion) i palpitacija; "
+            "pita da li je bila kod ljekara i šta su joj rekli; "
+            "savjetuje da odmah prestane uzimati biljni dodatak; "
+            "objašnjava da biljni dodaci nisu bezopasni i da mogu imati ozbiljne nuspojave; "
+            "uputuje na kontrolu kod kardiologa; "
+            "ne preporučuje zamjenski biljni preparat za raspoloženje bez konsultacije sa ljekarom."
+        ),
+        "pocetna_poruka": "Dobar dan. Imate li nešto za smirenje? Srce mi lupa već danima, ne znam šta da radim.",
+        "rubrika": """Ocijeni po ovim kategorijama (svaka 0-10):
+
+ANAMNEZA (tezina 0.4): pitao koliko dugo traju simptomi i kada su poceli(2), pitao koje lijekove/dodatke prehrani koristi(2), pitao detalje o biljnom dodatku (opis, doza, trajanje)(2), pitao da li je bila kod ljekara i sta su utvrdili(2), prepoznao vezu kantarion-palpitacije(2)
+KAZNA: bez pitanja o dodacima prehrani/biljnim preparatima max 3/10; bez pitanja da li je posjetila ljekara max 5/10
+
+KOMUNIKACIJA (tezina 0.3): jezik laika bez medicinskog zargona(2), empatija i razumijevanje za strah pacijentice(2), provjerio da li je razumjela savjete(2), strukturisan razgovor sa logicnim redoslijedom pitanja(2), jasna i nedvosmislena poruka o prekidu dodatka(2)
+
+SIGURNOST (tezina 0.3): savjetovao odmah prekid biljnog dodatka(3), objasnio da biljni preparati mogu imati ozbiljne nuspojave(2), uputio na kontrolu kod kardiologa/ljekara(3), nije preporucio zamjenski biljni preparat bez konsultacije sa ljekarom(2)
+KAZNA: preporucio nastavak uzimanja biljnog dodatka = 0/10 za Sigurnost; preporucio drugi biljni lijek za raspolozenje bez upucivanja ljekaru = max 3/10 za Sigurnost""",
+    },
+}
 
 # ─── AI ───────────────────────────────────────────────────────────────────────
 def napravi_system_prompt(sc):
@@ -582,7 +715,7 @@ def pozovi_evaluatora(transkript, sc):
 Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}
 Crvene zastavice: {sc['crvene_zastavice']}
 Ocekivano savjetovanje: {sc['ocekivano']}
-{RUBRIKA}
+{sc.get('rubrika', '')}
 Transkript:\n{transkript}
 
 Vrati ISKLJUCIVO validan JSON bez ikakvog teksta prije ili poslije:
@@ -635,13 +768,10 @@ def prikazi_ocjenu(r):
     ukupno = float(r.get("ukupna_ocjena", 0))
     boja = "#22c55e" if ukupno >= 7 else ("#f59e0b" if ukupno >= 5 else "#ef4444")
     bg = "#f0fdf4" if ukupno >= 7 else ("#fffbeb" if ukupno >= 5 else "#fef2f2")
-    emoji = "🟢" if ukupno >= 7 else ("🟡" if ukupno >= 5 else "🔴")
-
     st.markdown(f"""
     <div style="background:{bg};border-radius:20px;padding:28px;text-align:center;
          margin:20px 0;border:2px solid {boja}22">
-        <div style="font-size:52px;margin-bottom:4px">{emoji}</div>
-        <div style="font-size:48px;font-weight:800;color:{boja};line-height:1">
+        <div style="font-size:48px;font-weight:800;color:{boja};line-height:1;margin-top:8px">
             {ukupno:.1f}
             <span style="font-size:22px;color:#94a3b8;font-weight:400">/10</span>
         </div>
@@ -657,25 +787,25 @@ def prikazi_ocjenu(r):
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
     if r.get("pohvale"):
-        st.markdown("#### ✅ Šta ste uradili dobro")
+        st.markdown("#### Šta ste uradili dobro")
         for p in r["pohvale"]:
             st.success(p)
 
     if r.get("propustena_pitanja"):
-        st.markdown("#### ❓ Propuštena pitanja")
+        st.markdown("#### Propuštena pitanja")
         for p in r["propustena_pitanja"]:
             st.warning(p)
 
     if r.get("smjernice"):
-        st.markdown("#### 💡 Smjernice za poboljšanje")
+        st.markdown("#### Smjernice za poboljšanje")
         for s in r["smjernice"]:
             st.info(s)
 
 
 def prikazi_leaderboard():
-    st.markdown("## 🏆 Ljestvica rezultata")
+    st.markdown("## Ljestvica rezultata")
 
-    medalje = ["🥇", "🥈", "🥉"]
+    medalje = ["1.", "2.", "3."]
     periodi = {"Sedmično": "sedmicno", "Mjesečno": "mjesecno", "Godišnje": "godisnje", "Ukupno": "ukupno"}
     tabovi = st.tabs(list(periodi.keys()))
 
@@ -685,7 +815,7 @@ def prikazi_leaderboard():
             if not podaci:
                 st.markdown("""
                 <div style="text-align:center;padding:40px;color:#94a3b8">
-                    <div style="font-size:40px">🏅</div>
+                    <div style="font-size:18px;font-weight:600;color:#94a3b8">—</div>
                     <div style="margin-top:8px">Još nema rezultata za ovaj period.</div>
                 </div>""", unsafe_allow_html=True)
                 continue
@@ -703,7 +833,7 @@ def prikazi_leaderboard():
                     <div style="font-size:24px;min-width:36px;text-align:center">{medalja}</div>
                     <div style="flex:1;min-width:0">
                         <div style="font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                            {red['ime']}{' 👤' if je_ja else ''}
+                            {red['ime']}{' (vi)' if je_ja else ''}
                         </div>
                         <div style="font-size:13px;color:#64748b">{red['institucija']} · {red['slucajeva']} slučaj/eva</div>
                     </div>
@@ -716,14 +846,13 @@ def prikazi_leaderboard():
 
 
 def prikazi_moje_rezultate():
-    st.markdown("## 📊 Moji rezultati")
+    st.markdown("## Moji rezultati")
     email = st.session_state.get("korisnik_email", "")
     rezultati = db_moji_rezultati(email)
 
     if not rezultati:
         st.markdown("""
         <div style="text-align:center;padding:48px;color:#94a3b8">
-            <div style="font-size:48px">📋</div>
             <div style="margin-top:12px;font-size:16px">Još nemate završenih scenarija.</div>
         </div>""", unsafe_allow_html=True)
         return
@@ -768,7 +897,7 @@ def prikazi_moje_rezultate():
 
 
 def prikazi_admin():
-    st.markdown("## 👑 Admin panel")
+    st.markdown("## Admin panel")
 
     # ── Obradi akciju iz session_state (ako postoji) ──
     akcija = st.session_state.pop("admin_akcija", None)
@@ -780,9 +909,9 @@ def prikazi_admin():
                 st.success(f"Odobren: **{ime_k}** ({email_k})")
                 ok, msg = posalji_email_odobrenje(email_k, ime_k)
                 if ok:
-                    st.success("Email notifikacija poslana!", icon="📧")
+                    st.success("Email notifikacija poslana!")
                 else:
-                    st.warning(f"Email nije poslan: {msg}", icon="📧")
+                    st.warning(f"Email nije poslan: {msg}")
             else:
                 st.error(f"Greška pri odobravanju korisnika {email_k}.")
         elif akcija["tip"] == "odbij":
@@ -797,24 +926,24 @@ def prikazi_admin():
                 st.error(f"Greška pri brisanju korisnika {email_k}.")
 
     # ── Zahtjevi na čekanju ──
-    st.markdown("### 📬 Zahtjevi na čekanju")
+    st.markdown("### Zahtjevi na čekanju")
     neodobreni = db_neodobreni_korisnici()
 
     if not neodobreni:
         st.markdown("""
         <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:40px">✅</div>
+            <div style="font-size:16px;font-weight:600;color:#94a3b8">—</div>
             <div style="margin-top:8px">Nema zahtjeva na čekanju.</div>
         </div>""", unsafe_allow_html=True)
     else:
-        st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.", icon="📬")
+        st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.")
         for i, k in enumerate(neodobreni):
             st.markdown(f"""
             <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:4px;
                  box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #f59e0b">
                 <div style="font-weight:700;color:#1e293b">{k.get('full_name','—')}</div>
                 <div style="font-size:13px;color:#64748b;margin-top:3px">
-                    📧 {k['email']} · 🏥 {k.get('institution','—')}
+                    {k['email']} · {k.get('institution','—')}
                 </div>
                 <div style="font-size:12px;color:#94a3b8;margin-top:2px">
                     Registrovan: {str(k.get('created_at',''))[:16]}
@@ -823,14 +952,14 @@ def prikazi_admin():
 
             col_a, col_b = st.columns(2)
             with col_a:
-                if st.button("✅ Odobri", key=f"odobri_{i}", type="primary", use_container_width=True):
+                if st.button("Odobri", key=f"odobri_{i}", type="primary", use_container_width=True):
                     st.session_state["admin_akcija"] = {
                         "tip": "odobri", "email": k["email"],
                         "ime": k.get("full_name", k["email"]),
                     }
                     st.rerun()
             with col_b:
-                if st.button("❌ Odbij", key=f"odbij_{i}", type="secondary", use_container_width=True):
+                if st.button("Odbij", key=f"odbij_{i}", type="secondary", use_container_width=True):
                     st.session_state["admin_akcija"] = {
                         "tip": "odbij", "email": k["email"],
                         "ime": k.get("full_name", k["email"]),
@@ -839,27 +968,8 @@ def prikazi_admin():
 
     st.divider()
 
-    # ── Test emaila ──
-    st.markdown("### 📧 Test email slanja")
-    test_email = st.text_input("Email za test:", placeholder="apotekesarajevosindikat@gmail.com")
-    if st.button("📨 Pošalji testni email", type="primary"):
-        if test_email:
-            rk = st.secrets.get("RESEND_API_KEY", "")
-            rf = st.secrets.get("RESEND_FROM", "onboarding@resend.dev")
-            st.info(f"Resend config: from=`{rf}`, API key={'✅' if rk else '❌ NEDOSTAJE'}")
-
-            ok, msg = posalji_email_odobrenje(test_email, "Test Korisnik")
-            if ok:
-                st.success(f"Email USPJEŠNO poslan na {test_email}!")
-            else:
-                st.error(f"Email NEUSPJEŠAN: {msg}")
-        else:
-            st.warning("Unesi email adresu.")
-
-    st.divider()
-
     # ── Lista odobrenih korisnika ──
-    st.markdown("### 👥 Odobreni korisnici")
+    st.markdown("### Odobreni korisnici")
     odobreni = db_svi_korisnici()
     if not odobreni:
         st.caption("Nema odobrenih korisnika.")
@@ -877,7 +987,7 @@ def prikazi_admin():
                       font-size:12px;font-weight:600">Aktivan</span>
             </div>""", unsafe_allow_html=True)
             if k["email"] != ADMIN_EMAIL:
-                if st.button("🗑️ Obriši", key=f"brisi_{i}", use_container_width=False):
+                if st.button("Obriši", key=f"brisi_{i}", use_container_width=False):
                     st.session_state["admin_akcija"] = {
                         "tip": "brisi", "email": k["email"],
                         "ime": k.get("full_name", k["email"]),
@@ -901,7 +1011,7 @@ def prikazi_login():
         </div>
         """, unsafe_allow_html=True)
 
-        tab_l, tab_r = st.tabs(["🔑  Prijava", "📝  Registracija"])
+        tab_l, tab_r = st.tabs(["Prijava", "Registracija"])
 
         with tab_l:
             st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -947,12 +1057,12 @@ def prikazi_login():
                     ok, poruka = db_registruj(email_r, loz1, ime, institucija)
                     if ok:
                         st.success("Zahtjev primljen! Bit ćete obaviješteni kada admin odobri pristup.")
-                        st.info("Kontakt za ubrzanje odobravanja: semir.mehovic1989@gmail.com", icon="📧")
+                        st.info("Kontakt za ubrzanje odobravanja: semir.mehovic1989@gmail.com")
                     else:
                         st.error(poruka)
 
         st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-        st.warning("Alat je isključivo za **edukaciju i vježbu farmaceutskog savjetovanja**. Nije namijenjen kliničkom odlučivanju.", icon="⚠️")
+        st.warning("Alat je isključivo za **edukaciju i vježbu farmaceutskog savjetovanja**. Nije namijenjen kliničkom odlučivanju.")
 
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
@@ -970,9 +1080,9 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     st.markdown("---")
-    nav_opcije = ["💊  Scenariji", "🏆  Ljestvica", "📊  Moji rezultati"]
+    nav_opcije = ["Scenariji", "Ljestvica", "Moji rezultati"]
     if st.session_state.get("korisnik_email", "") == ADMIN_EMAIL:
-        nav_opcije.append("👑  Admin")
+        nav_opcije.append("Admin")
     stranica = st.radio(
         "Navigacija",
         nav_opcije,
@@ -998,8 +1108,8 @@ if "Admin" in stranica:
     st.stop()
 
 # ─── SCENARIJI ───────────────────────────────────────────────────────────────
-st.warning("Alat je isključivo za **edukaciju i vježbu**. Nije podrška kliničkom odlučivanju.", icon="⚠️")
-st.markdown("## 💊 Klinički slučajevi")
+st.warning("Alat je isključivo za **edukaciju i vježbu**. Nije podrška kliničkom odlučivanju.")
+st.markdown("## Klinički slučajevi")
 
 email = st.session_state.get("korisnik_email", "")
 
@@ -1015,7 +1125,7 @@ for sc_id, sc in SCENARIJI.items():
                 <div style="font-size:13px;color:#64748b;margin-top:3px">{sc['ime']}, {sc['godine']} god.</div>
             </div>
             <span style="background:#dcfce7;color:#16a34a;padding:5px 14px;border-radius:20px;
-                  font-size:13px;font-weight:600;flex-shrink:0">✅ Završeno</span>
+                  font-size:13px;font-weight:600;flex-shrink:0">Završeno</span>
         </div>""", unsafe_allow_html=True)
     else:
         st.markdown(f"""
@@ -1027,7 +1137,7 @@ for sc_id, sc in SCENARIJI.items():
                 <div style="font-size:13px;color:#64748b;margin-top:3px">{sc['ime']}, {sc['godine']} god.</div>
             </div>
             <span style="background:#dbeafe;color:#1a3a8f;padding:5px 14px;border-radius:20px;
-                  font-size:13px;font-weight:600;flex-shrink:0">▶ Dostupno</span>
+                  font-size:13px;font-weight:600;flex-shrink:0">Dostupno</span>
         </div>""", unsafe_allow_html=True)
 
 st.divider()
@@ -1040,7 +1150,7 @@ odabrani_id = st.selectbox(
 sc = SCENARIJI[odabrani_id]
 vec_uradjen = db_vec_uradio(email, odabrani_id)
 
-with st.expander("ℹ️ Podaci o pacijentu", expanded=not vec_uradjen):
+with st.expander("Podaci o pacijentu", expanded=not vec_uradjen):
     col1, col2 = st.columns(2)
     col1.markdown(f"**Pacijent:** {sc['ime']}, {sc['godine']} god.")
     col2.markdown(f"**Terapija:** {sc['terapija']}")
@@ -1059,11 +1169,11 @@ stanje = st.session_state[kljuc]
 
 # ─── Završeni scenarij ────────────────────────────────────────────────────────
 if vec_uradjen:
-    st.info("Ovaj scenarij ste već završili. Rezultati su trajno sačuvani.", icon="📋")
+    st.info("Ovaj scenarij ste već završili. Rezultati su trajno sačuvani.")
 
     with st.expander("Transkript razgovora"):
         for p in stanje["poruke_prikaz"]:
-            with st.chat_message(p["role"], avatar="🧑‍⚕️" if p["role"] == "user" else "🙍"):
+            with st.chat_message(p["role"]):
                 st.markdown(p["content"])
 
     ocjena_data = stanje.get("ocjena") or db_dohvati_ocjenu(email, odabrani_id)
@@ -1075,14 +1185,14 @@ if vec_uradjen:
 
 # ─── Aktivni razgovor ─────────────────────────────────────────────────────────
 for p in stanje["poruke_prikaz"]:
-    with st.chat_message(p["role"], avatar="🧑‍⚕️" if p["role"] == "user" else "🙍"):
+    with st.chat_message(p["role"]):
         st.markdown(p["content"])
 
 if not stanje["poruke_prikaz"]:
     prva = sc["pocetna_poruka"]
     stanje["poruke_prikaz"].append({"role": "assistant", "content": prva})
     stanje["poruke_api"].append({"role": "assistant", "content": prva})
-    with st.chat_message("assistant", avatar="🙍"):
+    with st.chat_message("assistant"):
         st.markdown(prva)
 
 if not stanje["zavrseno"]:
@@ -1094,11 +1204,11 @@ if not stanje["zavrseno"]:
         stanje["poruke_prikaz"].append({"role": "user", "content": unos})
         stanje["poruke_api"].append({"role": "user", "content": unos})
         stanje["broj_poteza"] += 1
-        with st.chat_message("user", avatar="🧑‍⚕️"):
+        with st.chat_message("user"):
             st.markdown(unos)
 
         if stanje["broj_poteza"] < MAX_POTEZA:
-            with st.chat_message("assistant", avatar="🙍"):
+            with st.chat_message("assistant"):
                 with st.spinner(""):
                     odg = pozovi_pacijenta(stanje["poruke_api"], sc)
                 st.markdown(odg)
@@ -1112,7 +1222,7 @@ if not stanje["zavrseno"]:
 
 st.divider()
 if not stanje["zavrseno"] and stanje["broj_poteza"] >= 2:
-    if st.button("✅ Završi savjetovanje i dobij ocjenu", type="primary", use_container_width=True):
+    if st.button("Završi savjetovanje i dobij ocjenu", type="primary", use_container_width=True):
         pokreni_evaluaciju(stanje, sc, odabrani_id)
         st.rerun()
 

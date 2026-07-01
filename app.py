@@ -305,6 +305,41 @@ hr { border-color: #D4EEF2 !important; }
 </style>
 """, unsafe_allow_html=True)
 
+# ─── Indikator za meni (mobilni) — nestaje nakon 6s ─────────────────────────
+st.markdown("""
+<div id="menuHint" style="
+    position: fixed;
+    top: 18px;
+    left: 62px;
+    z-index: 999998;
+    background: white;
+    color: #0D8A9E;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+    display: none;
+    align-items: center;
+    gap: 4px;
+    animation: hintFade 6s ease-in-out forwards;
+    pointer-events: none;
+">
+    <span style="font-size:16px">&#8592;</span> Meni
+</div>
+<style>
+    @media (max-width: 768px) {
+        #menuHint { display: flex !important; }
+    }
+    @keyframes hintFade {
+        0% { opacity: 0; transform: translateX(8px); }
+        8% { opacity: 1; transform: translateX(0); }
+        75% { opacity: 1; }
+        100% { opacity: 0; display: none; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ─── Inicijalizacija ──────────────────────────────────────────────────────────
 try:
     os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]

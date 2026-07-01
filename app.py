@@ -44,11 +44,6 @@ html, body, [class*="css"] {
 }
 #MainMenu, footer { visibility: hidden; }
 
-/* ── Sidebar collapse control — sakrij Streamlit default ── */
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="collapsedControl"] {
-    display: none !important;
-}
 
 /* ── Pozadina ── */
 .stApp,
@@ -278,58 +273,6 @@ hr { border-color: #D4EEF2 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Floating meni dugme (custom HTML/JS) ────────────────────────────────────
-st.markdown("""
-<div id="menuBtn" onclick="
-    var sb = window.parent.document.querySelector('[data-testid=stSidebar]');
-    var ctrl = window.parent.document.querySelector('[data-testid=stSidebarCollapsedControl] button')
-             || window.parent.document.querySelector('[data-testid=collapsedControl] button');
-    if (sb && sb.getAttribute('aria-expanded') === 'true') {
-        var closeBtn = sb.querySelector('button[kind=header]')
-                     || sb.querySelector('[data-testid=stSidebarNavButton]');
-        if (closeBtn) closeBtn.click();
-    } else if (ctrl) {
-        ctrl.click();
-    } else if (sb) {
-        sb.setAttribute('aria-expanded', 'true');
-        sb.style.display = 'block';
-        sb.style.transform = 'none';
-    }
-" style="
-    position: fixed;
-    top: 14px;
-    left: 14px;
-    z-index: 999999;
-    width: 48px;
-    height: 48px;
-    background: linear-gradient(135deg, #1CB5C5, #0D8A9E);
-    border-radius: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 4px 16px rgba(13,138,158,0.5);
-    border: 2px solid rgba(255,255,255,0.7);
-    transition: all 0.2s ease;
-    user-select: none;
-" onmouseover="this.style.transform='scale(1.1)';this.style.boxShadow='0 6px 22px rgba(13,138,158,0.65)'"
-  onmouseout="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(13,138,158,0.5)'"
->
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"
-         stroke-linecap="round" stroke-linejoin="round">
-        <line x1="3" y1="6" x2="21" y2="6"></line>
-        <line x1="3" y1="12" x2="21" y2="12"></line>
-        <line x1="3" y1="18" x2="21" y2="18"></line>
-    </svg>
-</div>
-<style>
-    #menuBtn { animation: menuPulse 2s ease-in-out 3; }
-    @keyframes menuPulse {
-        0%, 100% { box-shadow: 0 4px 16px rgba(13,138,158,0.5); }
-        50% { box-shadow: 0 4px 28px rgba(13,138,158,0.85), 0 0 0 8px rgba(28,181,197,0.2); }
-    }
-</style>
-""", unsafe_allow_html=True)
 
 # ─── Inicijalizacija ──────────────────────────────────────────────────────────
 try:
@@ -1423,6 +1366,14 @@ if not stanje["zavrseno"]:
         }}, 1000);
     }})();
     </script>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px;
+         margin-bottom:10px;font-size:13px;color:#0c4a6e;line-height:1.5">
+        <strong>Savjet:</strong> U jednoj poruci možete postaviti više pitanja odjednom
+        (npr. kako se osjećate, koliko dugo traje, šta koristite). Iskoristite svaki pokušaj maksimalno.
+    </div>
     """, unsafe_allow_html=True)
 
     unos = st.chat_input("Vaš odgovor kao farmaceut...")

@@ -3,6 +3,8 @@ Clinical Case Simulator — Edu Pharma Community
 Supabase backend · Leaderboard · Cross-device persistence · Beautiful UI
 """
 
+import csv
+import io
 import json
 import os
 import hashlib
@@ -390,6 +392,59 @@ if SUPABASE_URL and SUPABASE_KEY:
     except Exception:
         pass
 
+# ─── Sentry — log grešaka (aktivan samo ako je SENTRY_DSN u secrets) ─────────
+try:
+    SENTRY_DSN = st.secrets.get("SENTRY_DSN", "")
+except Exception:
+    SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+
+
+@st.cache_resource
+def _init_sentry(dsn):
+    """Inicijalizuje Sentry jednom po procesu i hooka Streamlit-ov handler
+    za neuhvaćene greške (Streamlit ih inače proguta i samo prikaže u UI)."""
+    if not dsn:
+        return False
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.threading import ThreadingIntegration
+
+        sentry_sdk.init(
+            dsn=dsn,
+            send_default_pii=False,
+            traces_sample_rate=0,
+            # ThreadingIntegration lomi Streamlit-ove interne threadove
+            # (add_script_run_ctx) — mora ostati isključena
+            disabled_integrations=[ThreadingIntegration()],
+        )
+
+        from streamlit.runtime.scriptrunner import exec_code as _st_exec
+        _orig = _st_exec.handle_user_script_exception
+
+        def _sentry_hook(ex, *args, **kwargs):
+            sentry_sdk.capture_exception(ex)
+            return _orig(ex, *args, **kwargs)
+
+        _st_exec.handle_user_script_exception = _sentry_hook
+        return True
+    except Exception:
+        return False
+
+
+SENTRY_AKTIVAN = _init_sentry(SENTRY_DSN)
+
+
+def zabiljezi_gresku(e):
+    """Šalje uhvaćenu grešku u Sentry ako je konfigurisan; inače tiho."""
+    if not SENTRY_AKTIVAN:
+        return
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_exception(e)
+    except Exception:
+        pass
+
+
 MAX_POTEZA = 7
 DNEVNI_LIMIT_PORUKA = 60  # max AI poruka po korisniku dnevno (kontrola troškova)
 
@@ -418,6 +473,7 @@ def db_registruj(email, lozinka, ime, institucija):
         }).execute()
         return True, "ok"
     except Exception as e:
+        zabiljezi_gresku(e)
         return False, f"Greška: {e}"
 
 
@@ -437,6 +493,7 @@ def db_login(email, lozinka):
             return None, "Vaš nalog čeka odobrenje. Kontaktirajte semir.mehovic1989@gmail.com"
         return k, "ok"
     except Exception as e:
+        zabiljezi_gresku(e)
         return None, f"Greška: {e}"
 
 
@@ -468,8 +525,9 @@ def db_spremi(email, scenario_id, rezultat, transkript=""):
         # Fallback ako kolona 'transcript' još ne postoji u bazi
         try:
             db.table("attempts").insert(red).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            # Gubitak rezultata korisnika — kritično, mora u log grešaka
+            zabiljezi_gresku(e)
 
 
 def db_dohvati_ocjenu(email, scenario_id):
@@ -632,6 +690,47 @@ def db_pokusaji_korisnika(email):
         return r.data or []
     except Exception:
         return []
+
+
+def db_obrisi_sve_podatke(email):
+    """GDPR brisanje: uklanja nalog i SVE povezane podatke (pokušaji,
+    transkripti, žalbe, log korištenja)."""
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return False
+    try:
+        db.table("attempts").delete().eq("user_email", email).execute()
+        db.table("usage_log").delete().eq("user_email", email).execute()
+        db.table("users").delete().eq("email", email).execute()
+        return True
+    except Exception as e:
+        zabiljezi_gresku(e)
+        st.error(f"DB greška (GDPR brisanje): {e}")
+        return False
+
+
+def db_svi_pokusaji_export():
+    """Svi pokušaji (bez transkripta) za CSV export."""
+    if not db:
+        return []
+    try:
+        r = db.table("attempts").select(
+            "user_email, scenario_id, score, anamneza, komunikacija, sigurnost, "
+            "completed_at, appeal_status"
+        ).order("completed_at", desc=True).execute()
+        return r.data or []
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return []
+
+
+def napravi_csv(zaglavlje, redovi):
+    """Gradi CSV bajtove (UTF-8 sa BOM-om, ';' separator — radi u Excelu)."""
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", lineterminator="\n")
+    w.writerow(zaglavlje)
+    w.writerows(redovi)
+    return buf.getvalue().encode("utf-8-sig")
 
 
 # ─── Žalbe na ocjenu ─────────────────────────────────────────────────────────
@@ -859,8 +958,9 @@ def db_objava_obrisi(oid):
         return False
 
 
-# ─── Email notifikacija (Resend) ─────────────────────────────────────────────
-def posalji_email_odobrenje(korisnik_email, korisnik_ime):
+# ─── Email notifikacije (Resend) ─────────────────────────────────────────────
+def posalji_email(to_email, subject, html):
+    """Generičko slanje jednog emaila preko Resend HTTP API-ja."""
     try:
         api_key = st.secrets.get("RESEND_API_KEY", "")
         from_email = st.secrets.get("RESEND_FROM", "onboarding@resend.dev")
@@ -868,33 +968,10 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
         if not api_key:
             return False, "RESEND_API_KEY nije konfigurisan u secrets."
 
-        html = f"""
-        <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
-            <div style="text-align:center;margin-bottom:24px">
-                <h2 style="color:#1E3A8A;margin:0">Clinical Case Simulator</h2>
-                <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
-            </div>
-            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
-                <div style="font-size:18px;font-weight:600;color:#166534;margin-bottom:8px">&#10003;</div>
-                <div style="font-size:18px;font-weight:600;color:#166534">Nalog odobren!</div>
-            </div>
-            <p style="color:#1e293b;font-size:15px;line-height:1.6">
-                Poštovani/a <strong>{korisnik_ime}</strong>,
-            </p>
-            <p style="color:#1e293b;font-size:15px;line-height:1.6">
-                Vaš nalog na platformi <strong>Clinical Case Simulator</strong> je odobren.
-                Sada se možete prijaviti i započeti rad na kliničkim scenarijima.
-            </p>
-            <p style="color:#64748b;font-size:13px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px">
-                Edu Pharma Community · Farmaceutski trening
-            </p>
-        </div>
-        """
-
         payload = json.dumps({
             "from": from_email,
-            "to": [korisnik_email],
-            "subject": "Vaš nalog je odobren — Clinical Case Simulator",
+            "to": [to_email],
+            "subject": subject,
             "html": html,
         }).encode("utf-8")
 
@@ -914,9 +991,60 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
                 return False, f"Resend status: {resp.status}"
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
+        zabiljezi_gresku(e)
         return False, f"Resend HTTP {e.code}: {body}"
     except Exception as e:
+        zabiljezi_gresku(e)
         return False, str(e)
+
+
+def email_okvir(sadrzaj_html):
+    """Zajednički HTML okvir (header + footer) za sve emailove."""
+    return f"""
+    <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
+        <div style="text-align:center;margin-bottom:24px">
+            <h2 style="color:#1E3A8A;margin:0">Clinical Case Simulator</h2>
+            <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
+        </div>
+        {sadrzaj_html}
+        <p style="color:#64748b;font-size:13px;margin-top:24px;border-top:1px solid #e2e8f0;padding-top:16px">
+            Edu Pharma Community · Farmaceutski trening
+        </p>
+    </div>
+    """
+
+
+def posalji_email_odobrenje(korisnik_email, korisnik_ime):
+    sadrzaj = f"""
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
+            <div style="font-size:18px;font-weight:600;color:#166534;margin-bottom:8px">&#10003;</div>
+            <div style="font-size:18px;font-weight:600;color:#166534">Nalog odobren!</div>
+        </div>
+        <p style="color:#1e293b;font-size:15px;line-height:1.6">
+            Poštovani/a <strong>{korisnik_ime}</strong>,
+        </p>
+        <p style="color:#1e293b;font-size:15px;line-height:1.6">
+            Vaš nalog na platformi <strong>Clinical Case Simulator</strong> je odobren.
+            Sada se možete prijaviti i započeti rad na kliničkim scenarijima.
+        </p>
+    """
+    return posalji_email(
+        korisnik_email,
+        "Vaš nalog je odobren — Clinical Case Simulator",
+        email_okvir(sadrzaj),
+    )
+
+
+def posalji_email_masovni(to_email, korisnik_ime, subject, poruka_tekst):
+    """Masovni email — čisti tekst admina pretvara u HTML unutar okvira."""
+    tijelo = poruka_tekst.strip().replace("\n", "<br>")
+    sadrzaj = f"""
+        <p style="color:#1e293b;font-size:15px;line-height:1.6">
+            Poštovani/a <strong>{korisnik_ime}</strong>,
+        </p>
+        <p style="color:#1e293b;font-size:15px;line-height:1.6">{tijelo}</p>
+    """
+    return posalji_email(to_email, subject, email_okvir(sadrzaj))
 
 
 # ─── Scenariji ────────────────────────────────────────────────────────────────
@@ -1355,15 +1483,67 @@ def prikazi_moje_rezultate():
                                 st.error(msg)
 
 
+def prikazi_gdpr_brisanje():
+    """GDPR: korisnik može trajno obrisati svoj nalog i sve podatke."""
+    email = st.session_state.get("korisnik_email", "")
+    if not email or email == ADMIN_EMAIL:
+        return
+
+    st.divider()
+    with st.expander("Brisanje naloga i svih podataka (GDPR)"):
+        st.warning(
+            "**Trajno i nepovratno** briše vaš nalog, sve rezultate, transkripte "
+            "razgovora i evidenciju korištenja. Nakon brisanja nema povratka podataka."
+        )
+        with st.form("gdpr_forma"):
+            lozinka_g = st.text_input(
+                "Vaša lozinka", type="password", autocomplete="off"
+            )
+            potvrda_g = st.text_input(
+                "Za potvrdu upišite: OBRIŠI", placeholder="OBRIŠI"
+            )
+            submit_g = st.form_submit_button(
+                "Trajno obriši moj nalog i sve podatke", use_container_width=True
+            )
+        if submit_g:
+            if potvrda_g.strip() != "OBRIŠI":
+                st.error("Za potvrdu morate tačno upisati: OBRIŠI")
+            else:
+                k, _ = db_login(email, lozinka_g)
+                if not k:
+                    st.error("Pogrešna lozinka.")
+                elif db_obrisi_sve_podatke(email):
+                    for kljuc_s in list(st.session_state.keys()):
+                        del st.session_state[kljuc_s]
+                    st.session_state["gdpr_flash"] = (
+                        "Vaš nalog i svi podaci su trajno obrisani. Hvala što ste koristili platformu."
+                    )
+                    st.rerun()
+
+
 def prikazi_admin():
     st.markdown("## Admin panel")
 
     # ── Obradi akciju iz session_state (ako postoji) ──
     akcija = st.session_state.pop("admin_akcija", None)
     if akcija:
-        email_k = akcija["email"]
-        ime_k = akcija["ime"]
-        if akcija["tip"] == "odobri":
+        email_k = akcija.get("email", "")
+        ime_k = akcija.get("ime", "")
+        if akcija["tip"] == "bulk_odobri":
+            uspjeh, greske = 0, []
+            for kor in akcija["korisnici"]:
+                if db_odobri_korisnika(kor["email"]):
+                    uspjeh += 1
+                    ok, msg = posalji_email_odobrenje(kor["email"], kor["ime"])
+                    if not ok:
+                        greske.append(f"{kor['email']}: odobren, ali email nije poslan ({msg})")
+                else:
+                    greske.append(f"{kor['email']}: greška pri odobravanju")
+                time.sleep(0.6)  # Resend rate limit: 2 zahtjeva/s
+            st.success(f"Masovno odobreno: **{uspjeh}** od {len(akcija['korisnici'])} korisnika.")
+            for g in greske:
+                st.warning(g)
+        elif akcija["tip"] == "odobri":
             if db_odobri_korisnika(email_k):
                 st.success(f"Odobren: **{ime_k}** ({email_k})")
                 ok, msg = posalji_email_odobrenje(email_k, ime_k)
@@ -1379,8 +1559,8 @@ def prikazi_admin():
             else:
                 st.error(f"Greška pri brisanju korisnika {email_k}.")
         elif akcija["tip"] == "brisi":
-            if db_odbij_korisnika(email_k):
-                st.info(f"Korisnik **{ime_k}** ({email_k}) je obrisan.")
+            if db_obrisi_sve_podatke(email_k):
+                st.info(f"Korisnik **{ime_k}** ({email_k}) je obrisan zajedno sa svim podacima (GDPR).")
             else:
                 st.error(f"Greška pri brisanju korisnika {email_k}.")
         elif akcija["tip"] == "suspenduj":
@@ -1402,10 +1582,10 @@ def prikazi_admin():
 
     zalbe = db_otvorene_zalbe()
     (tab_stat, tab_zahtjevi, tab_korisnici, tab_zalbe,
-     tab_transkripti, tab_scenariji, tab_objave) = st.tabs([
+     tab_transkripti, tab_scenariji, tab_objave, tab_email) = st.tabs([
         "Statistika", "Zahtjevi", "Korisnici",
         f"Žalbe ({len(zalbe)})" if zalbe else "Žalbe",
-        "Transkripti", "Scenariji", "Objave",
+        "Transkripti", "Scenariji", "Objave", "Email",
     ])
 
     # ══ TAB 1: Zahtjevi na čekanju ══
@@ -1420,6 +1600,7 @@ def prikazi_admin():
             </div>""", unsafe_allow_html=True)
         else:
             st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.")
+            odabrani_bulk = []
             for i, k in enumerate(neodobreni):
                 st.markdown(f"""
                 <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:4px;
@@ -1433,7 +1614,13 @@ def prikazi_admin():
                     </div>
                 </div>""", unsafe_allow_html=True)
 
-                col_a, col_b = st.columns(2)
+                col_chk, col_a, col_b = st.columns([1, 1, 1])
+                with col_chk:
+                    if st.checkbox("Odaberi", key=f"chk_zahtjev_{k['email']}"):
+                        odabrani_bulk.append({
+                            "email": k["email"],
+                            "ime": k.get("full_name", k["email"]),
+                        })
                 with col_a:
                     if st.button("Odobri", key=f"odobri_{i}", type="primary", use_container_width=True):
                         st.session_state["admin_akcija"] = {
@@ -1448,6 +1635,34 @@ def prikazi_admin():
                             "ime": k.get("full_name", k["email"]),
                         }
                         st.rerun()
+
+            # ── Masovno odobravanje ──
+            st.divider()
+            cb1, cb2 = st.columns(2)
+            with cb1:
+                if st.button(
+                    f"Odobri odabrane ({len(odabrani_bulk)})",
+                    type="primary", use_container_width=True,
+                    disabled=not odabrani_bulk,
+                ):
+                    st.session_state["admin_akcija"] = {
+                        "tip": "bulk_odobri", "korisnici": odabrani_bulk,
+                    }
+                    st.rerun()
+            with cb2:
+                if st.button(
+                    f"Odobri sve ({len(neodobreni)})",
+                    use_container_width=True,
+                ):
+                    st.session_state["admin_akcija"] = {
+                        "tip": "bulk_odobri",
+                        "korisnici": [
+                            {"email": k["email"], "ime": k.get("full_name", k["email"])}
+                            for k in neodobreni
+                        ],
+                    }
+                    st.rerun()
+            st.caption("Svaki odobreni korisnik automatski dobija email notifikaciju.")
 
     # ══ TAB 2: Korisnici — pretraga, reset lozinke, suspenzija, brisanje ══
     with tab_korisnici:
@@ -1673,6 +1888,64 @@ def prikazi_admin():
                 for em, t in top:
                     st.caption(f"{em} — {t:,} tokena")
 
+            # ── Export podataka (CSV) ──
+            st.markdown("#### Export podataka (CSV)")
+            danas_ime = sada.date().isoformat()
+            svi_kor = db_svi_korisnici()
+            imena_exp = {u["email"]: u for u in svi_kor}
+
+            ex1, ex2 = st.columns(2)
+            with ex1:
+                pokusaji_exp = db_svi_pokusaji_export()
+                redovi_r = [
+                    [
+                        imena_exp.get(p["user_email"], {}).get("full_name", ""),
+                        p["user_email"],
+                        imena_exp.get(p["user_email"], {}).get("institution", ""),
+                        SCENARIJI.get(p["scenario_id"], {}).get("naziv", p["scenario_id"]),
+                        p.get("score", ""),
+                        p.get("anamneza", ""),
+                        p.get("komunikacija", ""),
+                        p.get("sigurnost", ""),
+                        str(p.get("completed_at", ""))[:16].replace("T", " "),
+                        p.get("appeal_status") or "",
+                    ]
+                    for p in pokusaji_exp
+                ]
+                st.download_button(
+                    f"Rezultati ({len(redovi_r)})",
+                    data=napravi_csv(
+                        ["Ime", "Email", "Institucija", "Scenarij", "Ocjena",
+                         "Anamneza", "Komunikacija", "Sigurnost", "Datum", "Žalba"],
+                        redovi_r,
+                    ),
+                    file_name=f"rezultati_{danas_ime}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            with ex2:
+                redovi_k = [
+                    [
+                        u.get("full_name", ""),
+                        u["email"],
+                        u.get("institution", ""),
+                        "suspendovan" if u.get("suspended") else "aktivan",
+                        str(u.get("created_at", ""))[:16].replace("T", " "),
+                    ]
+                    for u in svi_kor
+                ]
+                st.download_button(
+                    f"Korisnici ({len(redovi_k)})",
+                    data=napravi_csv(
+                        ["Ime", "Email", "Institucija", "Status", "Registrovan"],
+                        redovi_k,
+                    ),
+                    file_name=f"korisnici_{danas_ime}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            st.caption("CSV fajlovi su spremni za Excel (UTF-8, ';' separator).")
+
     # ══ TAB: Scenariji (CMS) ══
     with tab_scenariji:
         st.caption(
@@ -1826,8 +2099,77 @@ def prikazi_admin():
                     if db_objava_obrisi(o["id"]):
                         st.rerun()
 
+    # ══ TAB: Masovni email (Resend) ══
+    with tab_email:
+        st.caption(
+            "Pošaljite email svim ili odabranim korisnicima. "
+            "Poruka se šalje u standardnom vizuelnom okviru platforme."
+        )
+        korisnici_email = db_svi_korisnici()
+        if not korisnici_email:
+            st.caption("Nema odobrenih korisnika.")
+        else:
+            opcije_k = {
+                f"{k.get('full_name', '—')} ({k['email']})": k
+                for k in korisnici_email
+            }
+            with st.form("bulk_email_forma"):
+                mod_primaoci = st.radio(
+                    "Primaoci",
+                    ["Svi odobreni korisnici", "Odabrani korisnici"],
+                    horizontal=True,
+                )
+                izbor_k = st.multiselect(
+                    "Odaberite korisnike (samo za opciju 'Odabrani korisnici')",
+                    list(opcije_k.keys()),
+                )
+                subject_in = st.text_input(
+                    "Naslov emaila", placeholder="Npr. Novi scenarij dostupan!"
+                )
+                poruka_in = st.text_area(
+                    "Poruka", height=160,
+                    placeholder="Tekst poruke — svaki korisnik dobija personalizovan pozdrav.",
+                )
+                posalji_bulk = st.form_submit_button(
+                    "Pošalji email", type="primary", use_container_width=True
+                )
+
+            if posalji_bulk:
+                if mod_primaoci == "Odabrani korisnici":
+                    primaoci = [opcije_k[o] for o in izbor_k]
+                else:
+                    primaoci = korisnici_email
+                if not primaoci:
+                    st.error("Odaberite barem jednog primaoca.")
+                elif not subject_in.strip() or len(poruka_in.strip()) < 5:
+                    st.error("Upišite naslov i tekst poruke.")
+                else:
+                    traka = st.progress(0.0, text="Slanje...")
+                    uspjeh, greske = 0, []
+                    for idx, kor in enumerate(primaoci):
+                        ok, msg = posalji_email_masovni(
+                            kor["email"], kor.get("full_name", ""),
+                            subject_in.strip(), poruka_in,
+                        )
+                        if ok:
+                            uspjeh += 1
+                        else:
+                            greske.append(f"{kor['email']}: {msg}")
+                        traka.progress(
+                            (idx + 1) / len(primaoci),
+                            text=f"Slanje... {idx + 1}/{len(primaoci)}",
+                        )
+                        time.sleep(0.6)  # Resend rate limit: 2 zahtjeva/s
+                    traka.empty()
+                    st.success(f"Poslano: **{uspjeh}** od {len(primaoci)} emaila.")
+                    for g in greske:
+                        st.warning(g)
+
 
 def prikazi_login():
+    gdpr_flash = st.session_state.pop("gdpr_flash", None)
+    if gdpr_flash:
+        st.success(gdpr_flash)
     # Centrirani login
     col1, col2, col3 = st.columns([1, 10, 1])
     with col2:
@@ -1967,6 +2309,7 @@ if "Ljestvica" in stranica:
 
 if "Moji rezultati" in stranica:
     prikazi_moje_rezultate()
+    prikazi_gdpr_brisanje()
     st.stop()
 
 if "Admin" in stranica:

@@ -391,6 +391,11 @@ if SUPABASE_URL and SUPABASE_KEY:
         pass
 
 MAX_POTEZA = 7
+DNEVNI_LIMIT_PORUKA = 60  # max AI poruka po korisniku dnevno (kontrola troškova)
+
+# Procjena troška — claude-sonnet cijene po tokenu (USD)
+CIJENA_ULAZ_USD = 3.00 / 1_000_000
+CIJENA_IZLAZ_USD = 15.00 / 1_000_000
 
 # ─── DB funkcije ──────────────────────────────────────────────────────────────
 def hash_loz(lozinka: str) -> str:
@@ -681,6 +686,179 @@ def db_rijesi_zalbu(attempt_id, status, odgovor, nove_ocjene=None):
         return False
 
 
+# ─── Log korištenja — analitika, troškovi, dnevni limit ──────────────────────
+def db_log_upotrebu(event, scenario_id="", tokens_in=0, tokens_out=0):
+    if not db:
+        return
+    try:
+        db.table("usage_log").insert({
+            "user_email": st.session_state.get("korisnik_email", ""),
+            "event": event,
+            "scenario_id": scenario_id,
+            "tokens_in": int(tokens_in),
+            "tokens_out": int(tokens_out),
+        }).execute()
+    except Exception:
+        pass
+
+
+def db_poruka_danas(email):
+    """Broj AI poruka korisnika danas (za dnevni limit). Fail-open na 0."""
+    if not db:
+        return 0
+    try:
+        od = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        r = (db.table("usage_log").select("id", count="exact")
+             .eq("user_email", email).eq("event", "poruka").gte("created_at", od).execute())
+        return r.count or 0
+    except Exception:
+        return 0
+
+
+def db_statistika():
+    """Sirovi podaci za admin statistiku (pokušaji, korisnici, upotreba 30 dana)."""
+    if not db:
+        return None
+    try:
+        pokusaji = db.table("attempts").select(
+            "user_email, scenario_id, score, completed_at").execute().data or []
+        korisnici = db.table("users").select("email, approved").execute().data or []
+        od30 = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        upotreba = db.table("usage_log").select(
+            "user_email, event, scenario_id, tokens_in, tokens_out, created_at"
+        ).gte("created_at", od30).execute().data or []
+        return {"pokusaji": pokusaji, "korisnici": korisnici, "upotreba": upotreba}
+    except Exception:
+        return None
+
+
+# ─── CMS: scenariji iz baze ──────────────────────────────────────────────────
+@st.cache_data(ttl=120)
+def _ucitaj_db_scenarije():
+    """Scenariji iz Supabase — nadjačavaju/dopunjuju ugrađene (isti id)."""
+    if not db:
+        return {}
+    try:
+        r = db.table("scenarios").select("*").execute()
+        out = {}
+        for red in r.data or []:
+            out[red["id"]] = {
+                "naziv": red.get("naziv") or red["id"],
+                "ime": red.get("ime") or "",
+                "godine": red.get("godine") or 0,
+                "tegoba": red.get("tegoba") or "",
+                "terapija": red.get("terapija") or "",
+                "skriveni_detalji": red.get("skriveni_detalji") or "",
+                "crvene_zastavice": red.get("crvene_zastavice") or "",
+                "ocekivano": red.get("ocekivano") or "",
+                "pocetna_poruka": red.get("pocetna_poruka") or "",
+                "rubrika": red.get("rubrika") or "",
+                "aktivan": bool(red.get("active", False)),
+                "_iz_baze": True,
+            }
+        return out
+    except Exception:
+        return {}
+
+
+def db_scenarij_spremi(sid, podaci):
+    """Upsert scenarija u bazu (podaci = dict s poljima tabele scenarios)."""
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return False
+    try:
+        db.table("scenarios").upsert({"id": sid.strip(), **podaci}).execute()
+        _ucitaj_db_scenarije.clear()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (scenarij): {e}")
+        return False
+
+
+def db_scenarij_aktivan(sid, aktivan):
+    if not db:
+        return False
+    try:
+        db.table("scenarios").update({"active": aktivan}).eq("id", sid).execute()
+        _ucitaj_db_scenarije.clear()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (scenarij): {e}")
+        return False
+
+
+def db_scenarij_obrisi(sid):
+    if not db:
+        return False
+    try:
+        db.table("scenarios").delete().eq("id", sid).execute()
+        _ucitaj_db_scenarije.clear()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (scenarij): {e}")
+        return False
+
+
+# ─── Objave / banner ─────────────────────────────────────────────────────────
+@st.cache_data(ttl=120)
+def _ucitaj_objave():
+    if not db:
+        return []
+    try:
+        r = (db.table("announcements").select("*")
+             .eq("active", True).order("created_at", desc=True).execute())
+        return r.data or []
+    except Exception:
+        return []
+
+
+def db_objave_sve():
+    if not db:
+        return []
+    try:
+        r = db.table("announcements").select("*").order("created_at", desc=True).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def db_objava_nova(tekst, tip):
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return False
+    try:
+        db.table("announcements").insert({"tekst": tekst.strip(), "tip": tip, "active": True}).execute()
+        _ucitaj_objave.clear()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (objava): {e}")
+        return False
+
+
+def db_objava_aktivna(oid, aktivna):
+    if not db:
+        return False
+    try:
+        db.table("announcements").update({"active": aktivna}).eq("id", oid).execute()
+        _ucitaj_objave.clear()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (objava): {e}")
+        return False
+
+
+def db_objava_obrisi(oid):
+    if not db:
+        return False
+    try:
+        db.table("announcements").delete().eq("id", oid).execute()
+        _ucitaj_objave.clear()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (objava): {e}")
+        return False
+
+
 # ─── Email notifikacija (Resend) ─────────────────────────────────────────────
 def posalji_email_odobrenje(korisnik_email, korisnik_ime):
     try:
@@ -831,6 +1009,9 @@ KAZNA: preporucio nastavak uzimanja biljnog dodatka = 0/10 za Sigurnost; preporu
 }
 
 # ─── AI ───────────────────────────────────────────────────────────────────────
+SCENARIJI.update(_ucitaj_db_scenarije())
+
+
 def napravi_system_prompt(sc):
     staticki = (
         "Ti si pacijent koji je upravo usao u apoteku. Pravila:\n"
@@ -859,6 +1040,8 @@ def pozovi_pacijenta(poruke, sc):
         model="claude-sonnet-4-6", max_tokens=300,
         system=napravi_system_prompt(sc), messages=poruke,
     )
+    db_log_upotrebu("poruka", st.session_state.get("odabrani_scenarij", ""),
+                    r.usage.input_tokens, r.usage.output_tokens)
     return r.content[0].text
 
 
@@ -876,6 +1059,8 @@ Vrati ISKLJUCIVO validan JSON bez ikakvog teksta prije ili poslije:
         model="claude-sonnet-4-6", max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
+    db_log_upotrebu("evaluacija", st.session_state.get("odabrani_scenarij", ""),
+                    r.usage.input_tokens, r.usage.output_tokens)
     return r.content[0].text
 
 
@@ -1216,10 +1401,11 @@ def prikazi_admin():
         st.success(flash)
 
     zalbe = db_otvorene_zalbe()
-    tab_zahtjevi, tab_korisnici, tab_zalbe, tab_transkripti = st.tabs([
-        "Zahtjevi", "Korisnici",
+    (tab_stat, tab_zahtjevi, tab_korisnici, tab_zalbe,
+     tab_transkripti, tab_scenariji, tab_objave) = st.tabs([
+        "Statistika", "Zahtjevi", "Korisnici",
         f"Žalbe ({len(zalbe)})" if zalbe else "Žalbe",
-        "Transkripti",
+        "Transkripti", "Scenariji", "Objave",
     ])
 
     # ══ TAB 1: Zahtjevi na čekanju ══
@@ -1403,6 +1589,243 @@ def prikazi_admin():
                     else:
                         st.caption("Transkript nije sačuvan (pokušaj prije uvođenja ove funkcije).")
 
+    # ══ TAB: Statistika ══
+    with tab_stat:
+        podaci = db_statistika()
+        if not podaci:
+            st.caption("Statistika nije dostupna.")
+        else:
+            pokusaji = podaci["pokusaji"]
+            upotreba = podaci["upotreba"]
+            sada = datetime.now(timezone.utc)
+            danas_str = sada.date().isoformat()
+            od7 = (sada - timedelta(days=7)).isoformat()
+            od30 = (sada - timedelta(days=30)).isoformat()
+
+            aktivni_danas = {u["user_email"] for u in upotreba
+                             if str(u.get("created_at", "")) >= danas_str} - {"", None}
+            aktivni_7d = {u["user_email"] for u in upotreba
+                          if str(u.get("created_at", "")) >= od7} - {"", None}
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Korisnika", sum(1 for k in podaci["korisnici"] if k.get("approved")))
+            c2.metric("Aktivni danas", len(aktivni_danas))
+            c3.metric("Aktivni (7 d)", len(aktivni_7d))
+            c4.metric("Pokušaja ukupno", len(pokusaji))
+
+            # ── Po scenariju ──
+            st.markdown("#### Po scenariju")
+            po_sc = defaultdict(lambda: {"n": 0, "suma": 0.0})
+            for p in pokusaji:
+                po_sc[p["scenario_id"]]["n"] += 1
+                po_sc[p["scenario_id"]]["suma"] += float(p.get("score") or 0)
+            startovi = defaultdict(int)
+            zavrseni30 = defaultdict(int)
+            for u in upotreba:
+                if u.get("event") == "start" and u.get("scenario_id"):
+                    startovi[u["scenario_id"]] += 1
+            for p in pokusaji:
+                if str(p.get("completed_at", "")) >= od30:
+                    zavrseni30[p["scenario_id"]] += 1
+
+            if not po_sc:
+                st.caption("Još nema odigranih scenarija.")
+            else:
+                redovi = ""
+                for sid, d in sorted(po_sc.items()):
+                    naziv_sc = SCENARIJI.get(sid, {}).get("naziv", sid)
+                    prosjek = d["suma"] / d["n"] if d["n"] else 0
+                    n_start = startovi.get(sid, 0)
+                    zavrsenost = (
+                        f"{min(100, round(100 * zavrseni30[sid] / n_start))}%"
+                        if n_start else "—"
+                    )
+                    redovi += f"| {naziv_sc} | {d['n']} | {prosjek:.1f} | {zavrsenost} |\n"
+                st.markdown(
+                    "| Scenarij | Pokušaja | Prosjek | Završenost (30 d) |\n"
+                    "|---|---|---|---|\n" + redovi
+                )
+                st.caption("Završenost = završeni / započeti u zadnjih 30 dana. Niska završenost = korisnici odustaju usred razgovora.")
+
+            # ── API potrošnja ──
+            st.markdown("#### API potrošnja (procjena)")
+
+            def _trosak(redovi_u):
+                t_in = sum(u.get("tokens_in") or 0 for u in redovi_u)
+                t_out = sum(u.get("tokens_out") or 0 for u in redovi_u)
+                return t_in + t_out, t_in * CIJENA_ULAZ_USD + t_out * CIJENA_IZLAZ_USD
+
+            t_d, c_d = _trosak([u for u in upotreba if str(u.get("created_at", "")) >= danas_str])
+            t_7, c_7 = _trosak([u for u in upotreba if str(u.get("created_at", "")) >= od7])
+            t_30, c_30 = _trosak(upotreba)
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Danas", f"${c_d:.2f}", f"{t_d:,} tokena", delta_color="off")
+            m2.metric("7 dana", f"${c_7:.2f}", f"{t_7:,} tokena", delta_color="off")
+            m3.metric("30 dana", f"${c_30:.2f}", f"{t_30:,} tokena", delta_color="off")
+
+            po_korisniku = defaultdict(int)
+            for u in upotreba:
+                po_korisniku[u.get("user_email") or "?"] += (u.get("tokens_in") or 0) + (u.get("tokens_out") or 0)
+            top = sorted(po_korisniku.items(), key=lambda x: -x[1])[:5]
+            if top:
+                st.markdown("**Top 5 korisnika po tokenima (30 d):**")
+                for em, t in top:
+                    st.caption(f"{em} — {t:,} tokena")
+
+    # ══ TAB: Scenariji (CMS) ══
+    with tab_scenariji:
+        st.caption(
+            "Scenariji iz baze se uređuju bez novog deploya. "
+            "Ugrađene (u kodu) prvo kopirajte u bazu, pa uredite."
+        )
+        for sid, s in SCENARIJI.items():
+            iz_baze = s.get("_iz_baze", False)
+            aktivan = s.get("aktivan", True)
+            if iz_baze:
+                badge_bg, badge_boja, badge_txt = (
+                    ("#dcfce7", "#16a34a", "Baza · aktivan") if aktivan
+                    else ("#fef3c7", "#92400e", "Baza · draft")
+                )
+            else:
+                badge_bg, badge_boja, badge_txt = "#dbeafe", "#2C6FBE", "Ugrađen u kod"
+            st.markdown(f"""
+            <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:4px;
+                 box-shadow:0 1px 3px rgba(0,0,0,0.05);display:flex;align-items:center;gap:12px">
+                <div style="flex:1">
+                    <div style="font-weight:600;color:#1e293b">{s.get('naziv', sid)}</div>
+                    <div style="font-size:13px;color:#64748b">{sid} · {s.get('ime','')}, {s.get('godine','')} god.</div>
+                </div>
+                <span style="background:{badge_bg};color:{badge_boja};padding:4px 12px;border-radius:16px;
+                      font-size:12px;font-weight:600">{badge_txt}</span>
+            </div>""", unsafe_allow_html=True)
+
+            if iz_baze:
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    if st.button("Uredi", key=f"sc_uredi_{sid}", use_container_width=True):
+                        st.session_state["uredi_scenarij"] = sid
+                        st.rerun()
+                with c2:
+                    lbl = "Deaktiviraj" if aktivan else "Aktiviraj"
+                    if st.button(lbl, key=f"sc_akt_{sid}", use_container_width=True):
+                        if db_scenarij_aktivan(sid, not aktivan):
+                            st.session_state["admin_flash"] = f"Scenarij '{s.get('naziv', sid)}' — {'deaktiviran' if aktivan else 'aktiviran'}."
+                            st.rerun()
+                with c3:
+                    if st.button("Obriši", key=f"sc_del_{sid}", use_container_width=True):
+                        if db_scenarij_obrisi(sid):
+                            st.session_state["admin_flash"] = f"Scenarij '{s.get('naziv', sid)}' obrisan iz baze."
+                            st.rerun()
+            else:
+                if st.button("Kopiraj u bazu za uređivanje", key=f"sc_kopiraj_{sid}"):
+                    ok = db_scenarij_spremi(sid, {
+                        "naziv": s.get("naziv", ""), "ime": s.get("ime", ""),
+                        "godine": int(s.get("godine") or 0), "tegoba": s.get("tegoba", ""),
+                        "terapija": s.get("terapija", ""), "skriveni_detalji": s.get("skriveni_detalji", ""),
+                        "crvene_zastavice": s.get("crvene_zastavice", ""), "ocekivano": s.get("ocekivano", ""),
+                        "pocetna_poruka": s.get("pocetna_poruka", ""), "rubrika": s.get("rubrika", ""),
+                        "active": True,
+                    })
+                    if ok:
+                        st.session_state["admin_flash"] = f"Scenarij '{s.get('naziv', sid)}' kopiran u bazu — sada se može uređivati."
+                        st.rerun()
+
+        st.divider()
+
+        # ── Forma: novi ili uredi postojeći ──
+        uredi_sid = st.session_state.get("uredi_scenarij")
+        izvor = SCENARIJI.get(uredi_sid, {}) if uredi_sid else {}
+        st.markdown("#### " + (f"Uredi scenarij: {izvor.get('naziv', uredi_sid)}" if uredi_sid else "Novi scenarij"))
+
+        with st.form(f"scenarij_forma_{uredi_sid or 'novi'}"):
+            sid_in = st.text_input("ID (jedinstven, npr. scenarij_3)", value=uredi_sid or "")
+            naziv_in = st.text_input("Naziv", value=izvor.get("naziv", ""),
+                                     placeholder="Scenarij 3 — Glavobolja i ...")
+            c1, c2 = st.columns(2)
+            ime_in = c1.text_input("Ime pacijenta", value=izvor.get("ime", ""))
+            godine_in = c2.number_input("Godine", 0, 120, int(izvor.get("godine") or 30))
+            tegoba_in = st.text_area("Tegoba / razlog posjete", value=izvor.get("tegoba", ""), height=70)
+            terapija_in = st.text_area("Postojeća terapija", value=izvor.get("terapija", ""), height=70)
+            skriveni_in = st.text_area("Skriveni detalji (otkriva samo na direktno pitanje)",
+                                       value=izvor.get("skriveni_detalji", ""), height=140)
+            zastavice_in = st.text_area("Crvene zastavice", value=izvor.get("crvene_zastavice", ""), height=100)
+            ocekivano_in = st.text_area("Očekivano savjetovanje", value=izvor.get("ocekivano", ""), height=100)
+            pocetna_in = st.text_input("Početna poruka pacijenta", value=izvor.get("pocetna_poruka", ""))
+            rubrika_in = st.text_area("Rubrika za ocjenjivanje", value=izvor.get("rubrika", ""), height=180)
+            aktivan_in = st.checkbox("Aktivan (odmah vidljiv korisnicima)", value=bool(izvor.get("aktivan", False)))
+            cf1, cf2 = st.columns(2)
+            spremi = cf1.form_submit_button("Spremi scenarij", type="primary", use_container_width=True)
+            otkazi = cf2.form_submit_button("Otkaži uređivanje", use_container_width=True)
+
+        if otkazi:
+            st.session_state.pop("uredi_scenarij", None)
+            st.rerun()
+        if spremi:
+            if not sid_in.strip() or not naziv_in.strip() or not pocetna_in.strip() or not skriveni_in.strip():
+                st.error("Obavezno: ID, naziv, početna poruka i skriveni detalji.")
+            else:
+                ok = db_scenarij_spremi(sid_in, {
+                    "naziv": naziv_in.strip(), "ime": ime_in.strip(), "godine": int(godine_in),
+                    "tegoba": tegoba_in.strip(), "terapija": terapija_in.strip(),
+                    "skriveni_detalji": skriveni_in.strip(), "crvene_zastavice": zastavice_in.strip(),
+                    "ocekivano": ocekivano_in.strip(), "pocetna_poruka": pocetna_in.strip(),
+                    "rubrika": rubrika_in.strip(), "active": bool(aktivan_in),
+                })
+                if ok:
+                    st.session_state.pop("uredi_scenarij", None)
+                    st.session_state["admin_flash"] = (
+                        f"Scenarij '{naziv_in.strip()}' spremljen"
+                        + (" i aktivan." if aktivan_in else " kao draft (nije vidljiv korisnicima).")
+                    )
+                    st.rerun()
+
+    # ══ TAB: Objave ══
+    with tab_objave:
+        with st.form("nova_objava"):
+            tekst_o = st.text_area("Tekst objave",
+                                   placeholder="Npr. Novi scenarij dostupan od ponedjeljka!")
+            tip_o = st.selectbox("Tip", ["info", "warning"],
+                                 format_func=lambda t: "Info (plavo)" if t == "info" else "Upozorenje (žuto)")
+            if st.form_submit_button("Objavi", type="primary"):
+                if len(tekst_o.strip()) < 3:
+                    st.error("Upišite tekst objave.")
+                elif db_objava_nova(tekst_o, tip_o):
+                    st.session_state["admin_flash"] = "Objava postavljena — vidljiva svim korisnicima."
+                    st.rerun()
+
+        st.divider()
+        objave = db_objave_sve()
+        if not objave:
+            st.caption("Nema objava.")
+        for o in objave:
+            o_aktivna = o.get("active", False)
+            badge_bg, badge_boja, badge_txt = (
+                ("#dcfce7", "#16a34a", "Aktivna") if o_aktivna else ("#e2e8f0", "#64748b", "Skrivena")
+            )
+            st.markdown(f"""
+            <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:4px;
+                 box-shadow:0 1px 3px rgba(0,0,0,0.05);display:flex;align-items:center;gap:12px">
+                <div style="flex:1">
+                    <div style="color:#1e293b">{o.get('tekst','')}</div>
+                    <div style="font-size:12px;color:#94a3b8;margin-top:3px">
+                        {o.get('tip','info')} · {str(o.get('created_at',''))[:16].replace('T',' ')}
+                    </div>
+                </div>
+                <span style="background:{badge_bg};color:{badge_boja};padding:4px 12px;border-radius:16px;
+                      font-size:12px;font-weight:600">{badge_txt}</span>
+            </div>""", unsafe_allow_html=True)
+            co1, co2 = st.columns(2)
+            with co1:
+                lbl = "Sakrij" if o_aktivna else "Prikaži"
+                if st.button(lbl, key=f"obj_akt_{o['id']}", use_container_width=True):
+                    if db_objava_aktivna(o["id"], not o_aktivna):
+                        st.rerun()
+            with co2:
+                if st.button("Obriši", key=f"obj_del_{o['id']}", use_container_width=True):
+                    if db_objava_obrisi(o["id"]):
+                        st.rerun()
+
 
 def prikazi_login():
     # Centrirani login
@@ -1530,6 +1953,13 @@ with st.sidebar:
             del st.session_state[k]
         st.rerun()
 
+# ─── Objave / banner ─────────────────────────────────────────────────────────
+for _obj in _ucitaj_objave():
+    if _obj.get("tip") == "warning":
+        st.warning(_obj["tekst"])
+    else:
+        st.info(_obj["tekst"])
+
 # ─── Stranice ────────────────────────────────────────────────────────────────
 if "Ljestvica" in stranica:
     prikazi_leaderboard()
@@ -1554,7 +1984,7 @@ if odabrani_id is None:
     st.markdown("## Klinički slučajevi")
 
     # Sortiraj: nezavršeni prvi, završeni ispod
-    svi = list(SCENARIJI.items())
+    svi = [(sid, s) for sid, s in SCENARIJI.items() if s.get("aktivan", True)]
     nezavrseni = [(sid, sc) for sid, sc in svi if not db_vec_uradio(email, sid)]
     zavrseni = [(sid, sc) for sid, sc in svi if db_vec_uradio(email, sid)]
 
@@ -1604,7 +2034,10 @@ if odabrani_id is None:
     st.stop()
 
 # ─── Odabrani scenarij — prikaz ──────────────────────────────────────────────
-sc = SCENARIJI[odabrani_id]
+sc = SCENARIJI.get(odabrani_id)
+if not sc:
+    st.session_state["odabrani_scenarij"] = None
+    st.rerun()
 vec_uradjen = db_vec_uradio(email, odabrani_id)
 
 if st.button("Nazad na listu scenarija", type="secondary"):
@@ -1633,6 +2066,8 @@ if kljuc not in st.session_state:
         "ocjena": None, "zavrseno": False, "broj_poteza": 0,
         "zadnji_potez_vrijeme": time.time(),
     }
+    if not vec_uradjen:
+        db_log_upotrebu("start", odabrani_id)
 stanje = st.session_state[kljuc]
 
 # ─── Završeni scenarij ────────────────────────────────────────────────────────
@@ -1664,6 +2099,19 @@ if not stanje["poruke_prikaz"]:
         st.markdown(prva)
 
 if not stanje["zavrseno"]:
+    # ── Dnevni limit AI poruka (kontrola troškova) ──
+    if db_poruka_danas(email) >= DNEVNI_LIMIT_PORUKA:
+        if stanje["broj_poteza"] > 0:
+            st.warning("Dostigli ste dnevni limit poruka — savjetovanje se završava i ocjenjuje.")
+            pokreni_evaluaciju(stanje, sc, odabrani_id)
+            st.rerun()
+        else:
+            st.error(
+                f"Dostigli ste dnevni limit od {DNEVNI_LIMIT_PORUKA} AI poruka. "
+                "Limit se resetuje u ponoć (UTC) — nastavite sutra."
+            )
+            st.stop()
+
     preostalo = MAX_POTEZA - stanje["broj_poteza"]
 
     # ── Tajmer: provjeri da li je isteklo 60s od zadnjeg poteza ──

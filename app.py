@@ -29,44 +29,65 @@ st.set_page_config(
 # Tirkizna paleta · Mobile-first · Forsiran light mode
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap');
 
-/* ── Forsiran light mode — blokira dark prefers ── */
+/* ── Edu Pharma Community — dizajn tokeni (boje iz loga) ── */
 :root {
+    --epc-navy: #1E3A8A;       /* tamnoplava — "Edu Pharma" */
+    --epc-navy-dark: #152C6B;
+    --epc-blue: #2C6FBE;       /* kraljevsko plava iz simbola */
+    --epc-teal: #2FB7C6;       /* tirkizna iz simbola i "COMMUNITY" */
+    --epc-teal-dark: #0D8A9E;
+    --epc-bg: #F4F8FB;
+    --epc-surface: #FFFFFF;
+    --epc-text: #16233B;
+    --epc-muted: #51637A;
+    --epc-border: #D7E3EE;
     color-scheme: light only !important;
 }
+
+/* ── Forsiran light mode — blokira dark prefers ── */
 html, body, [class*="css"] {
-    font-family: 'Poppins', sans-serif !important;
+    font-family: 'Inter', 'Poppins', sans-serif !important;
     color-scheme: light !important;
 }
 @media (prefers-color-scheme: dark) {
-    html, body { background-color: #EEF6F8 !important; color: #1A2E3B !important; }
+    html, body { background-color: #F4F8FB !important; color: #16233B !important; }
 }
 #MainMenu, footer { visibility: hidden; }
 
+/* ── Naslovi — Poppins, navy iz loga ── */
+[data-testid="stMain"] h1, [data-testid="stMain"] h2,
+[data-testid="stMain"] h3, [data-testid="stMain"] h4,
+.main h1, .main h2, .main h3, .main h4 {
+    font-family: 'Poppins', sans-serif !important;
+    color: var(--epc-navy) !important;
+    letter-spacing: -0.3px;
+}
 
 /* ── Pozadina ── */
 .stApp,
 [data-testid="stAppViewContainer"],
 [data-testid="stAppViewContainer"] > .main,
 [data-testid="block-container"] {
-    background-color: #EEF6F8 !important;
+    background-color: var(--epc-bg) !important;
 }
 
-/* ── Sidebar — tirkizni gradijent ── */
+/* ── Sidebar — navy gradijent kao logo ── */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0D8A9E 0%, #0A6B7C 100%) !important;
+    background: linear-gradient(180deg, var(--epc-navy-dark) 0%, var(--epc-navy) 55%, #17608F 100%) !important;
 }
 [data-testid="stSidebar"] * { color: #FFFFFF !important; }
 [data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.25) !important; }
 [data-testid="stSidebar"] button {
-    background: rgba(255,255,255,0.18) !important;
+    background: rgba(255,255,255,0.14) !important;
     color: white !important;
-    border: 1px solid rgba(255,255,255,0.3) !important;
+    border: 1px solid rgba(255,255,255,0.35) !important;
     border-radius: 10px !important;
 }
 [data-testid="stSidebar"] button:hover {
-    background: rgba(255,255,255,0.3) !important;
+    background: rgba(47,183,198,0.45) !important;
+    border-color: rgba(255,255,255,0.6) !important;
 }
 
 /* ── Dugmad — višestruki selektori za Streamlit 1.5x ── */
@@ -77,17 +98,18 @@ html, body, [class*="css"] {
 [data-testid="baseButton-secondary"] {
     border-radius: 12px !important;
     font-weight: 600 !important;
-    font-size: 15px !important;
-    padding: 10px 20px !important;
+    font-size: 16px !important;
+    padding: 12px 22px !important;
+    min-height: 46px !important;
     transition: all 0.2s ease !important;
 }
-/* Primary dugme */
+/* Primary dugme — plava→navy kao logo */
 .stButton > button[kind="primary"],
 .stFormSubmitButton > button[kind="primary"],
 [data-testid="baseButton-primary"],
 [data-testid="stFormSubmitButton"] button,
 .stButton > button:first-of-type {
-    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
+    background: linear-gradient(135deg, #2C6FBE, #1E3A8A) !important;
     border: none !important;
     color: white !important;
     -webkit-text-fill-color: white !important;
@@ -95,15 +117,21 @@ html, body, [class*="css"] {
 .stButton > button:hover,
 .stFormSubmitButton > button:hover {
     transform: translateY(-2px) !important;
-    box-shadow: 0 6px 18px rgba(28,181,197,0.35) !important;
+    box-shadow: 0 6px 18px rgba(30,58,138,0.35) !important;
 }
 /* Secondary dugme */
 .stButton > button[kind="secondary"],
 [data-testid="baseButton-secondary"] {
     background: white !important;
-    border: 2px solid #1CB5C5 !important;
-    color: #0D8A9E !important;
-    -webkit-text-fill-color: #0D8A9E !important;
+    border: 2px solid #1E3A8A !important;
+    color: #1E3A8A !important;
+    -webkit-text-fill-color: #1E3A8A !important;
+}
+/* Tastaturna navigacija — jasan focus prsten */
+.stButton > button:focus-visible,
+.stFormSubmitButton > button:focus-visible {
+    outline: 3px solid var(--epc-teal) !important;
+    outline-offset: 2px !important;
 }
 
 /* ── Input polja — bijela pozadina, vidljiv tekst ── */
@@ -112,12 +140,12 @@ html, body, [class*="css"] {
 [data-baseweb="input"] input,
 [data-baseweb="base-input"] input {
     background-color: #FFFFFF !important;
-    color: #1A2E3B !important;
-    -webkit-text-fill-color: #1A2E3B !important;
+    color: #16233B !important;
+    -webkit-text-fill-color: #16233B !important;
     border-radius: 12px !important;
-    border: 1.5px solid #B2DDE4 !important;
-    font-size: 15px !important;
-    padding: 11px 14px !important;
+    border: 1.5px solid #C9DBEA !important;
+    font-size: 16px !important;
+    padding: 12px 14px !important;
 }
 [data-baseweb="input"],
 [data-baseweb="base-input"],
@@ -126,11 +154,11 @@ html, body, [class*="css"] {
     background-color: #FFFFFF !important;
 }
 .stTextInput > div > div > input::placeholder,
-[data-baseweb="input"] input::placeholder { color: #8BAAB2 !important; -webkit-text-fill-color: #8BAAB2 !important; }
+[data-baseweb="input"] input::placeholder { color: #7C93A8 !important; -webkit-text-fill-color: #7C93A8 !important; }
 .stTextInput > div > div > input:focus,
 [data-baseweb="input"]:focus-within {
-    border-color: #1CB5C5 !important;
-    box-shadow: 0 0 0 3px rgba(28,181,197,0.15) !important;
+    border-color: #2C6FBE !important;
+    box-shadow: 0 0 0 3px rgba(47,183,198,0.25) !important;
     outline: none !important;
 }
 
@@ -138,7 +166,7 @@ html, body, [class*="css"] {
 .stSelectbox > div > div {
     background: white !important;
     border-radius: 12px !important;
-    border: 1.5px solid #B2DDE4 !important;
+    border: 1.5px solid #C9DBEA !important;
 }
 
 /* ── Tabs ── */
@@ -151,12 +179,12 @@ html, body, [class*="css"] {
 }
 .stTabs [data-baseweb="tab"] {
     border-radius: 10px !important;
-    font-weight: 500 !important;
-    color: #5A8A96 !important;
-    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: #48627D !important;
+    font-size: 15px !important;
 }
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
+    background: linear-gradient(135deg, #2C6FBE, #1E3A8A) !important;
     color: white !important;
 }
 
@@ -196,12 +224,12 @@ div[data-testid="stAlert"] div {
 /* ── Chat input ── */
 [data-testid="stChatInput"] > div {
     border-radius: 16px !important;
-    border: 2px solid #B2DDE4 !important;
+    border: 2px solid #C9DBEA !important;
     background: white !important;
 }
 [data-testid="stChatInput"] > div:focus-within {
-    border-color: #1CB5C5 !important;
-    box-shadow: 0 0 0 3px rgba(28,181,197,0.12) !important;
+    border-color: #2C6FBE !important;
+    box-shadow: 0 0 0 3px rgba(47,183,198,0.2) !important;
 }
 
 /* ── Metric kartice ── */
@@ -210,10 +238,10 @@ div[data-testid="stAlert"] div {
     border-radius: 14px !important;
     padding: 18px !important;
     box-shadow: 0 1px 6px rgba(0,0,0,0.07) !important;
-    border-top: 3px solid #1CB5C5 !important;
+    border-top: 3px solid var(--epc-teal) !important;
 }
 [data-testid="metric-container"] [data-testid="stMetricValue"] {
-    color: #0D8A9E !important;
+    color: var(--epc-navy) !important;
     font-weight: 800 !important;
 }
 
@@ -221,27 +249,27 @@ div[data-testid="stAlert"] div {
 [data-testid="stExpander"] {
     background: white !important;
     border-radius: 14px !important;
-    border: 1.5px solid #D4EEF2 !important;
+    border: 1.5px solid var(--epc-border) !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important;
 }
 
 /* ── Divider ── */
-hr { border-color: #D4EEF2 !important; }
+hr { border-color: var(--epc-border) !important; }
 
 /* ── Form ── */
 [data-testid="stForm"] {
     background: white !important;
     border-radius: 16px !important;
     padding: 20px !important;
-    border: 1.5px solid #D4EEF2 !important;
+    border: 1.5px solid var(--epc-border) !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
 }
 
 /* ── Login/Registracija — veći font u formi ── */
 [data-testid="stForm"] label {
-    font-size: 15px !important;
+    font-size: 16px !important;
     font-weight: 600 !important;
-    color: #1e293b !important;
+    color: var(--epc-text) !important;
 }
 [data-testid="stForm"] .stFormSubmitButton button {
     font-size: 17px !important;
@@ -273,9 +301,9 @@ hr { border-color: #D4EEF2 !important; }
 /* ── Mobile: istakni Streamlit-ov ugrađeni hamburger ── */
 @media (max-width: 768px) {
     [data-testid="stSidebarCollapsedControl"] {
-        background: linear-gradient(135deg, #1CB5C5, #0D8A9E) !important;
+        background: linear-gradient(135deg, #2C6FBE, #1E3A8A) !important;
         border-radius: 14px !important;
-        box-shadow: 0 4px 16px rgba(13,138,158,0.5) !important;
+        box-shadow: 0 4px 16px rgba(30,58,138,0.5) !important;
         border: 2px solid rgba(255,255,255,0.7) !important;
         top: 10px !important;
         left: 10px !important;
@@ -298,8 +326,8 @@ hr { border-color: #D4EEF2 !important; }
         stroke: white !important;
     }
     @keyframes menuPulse {
-        0%, 100% { box-shadow: 0 4px 16px rgba(13,138,158,0.5); }
-        50% { box-shadow: 0 4px 28px rgba(13,138,158,0.85), 0 0 0 8px rgba(28,181,197,0.2); }
+        0%, 100% { box-shadow: 0 4px 16px rgba(30,58,138,0.5); }
+        50% { box-shadow: 0 4px 28px rgba(30,58,138,0.85), 0 0 0 8px rgba(47,183,198,0.25); }
     }
 }
 </style>
@@ -313,8 +341,8 @@ st.markdown("""
     left: 62px;
     z-index: 999998;
     background: white;
-    color: #0D8A9E;
-    font-size: 13px;
+    color: #1E3A8A;
+    font-size: 14px;
     font-weight: 600;
     padding: 6px 14px;
     border-radius: 10px;
@@ -567,7 +595,7 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
         html = f"""
         <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
             <div style="text-align:center;margin-bottom:24px">
-                <h2 style="color:#0D8A9E;margin:0">Clinical Case Simulator</h2>
+                <h2 style="color:#1E3A8A;margin:0">Clinical Case Simulator</h2>
                 <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
             </div>
             <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:20px;text-align:center;margin-bottom:20px">
@@ -833,7 +861,7 @@ def _leaderboard_red(i, red, ja, medalje, vrijednost, label_vr):
     medalja = medalje[i] if i < 3 else f"<span style='font-weight:700;color:#94a3b8'>{i+1}.</span>"
     je_ja = red["email"] == ja
     bg = "linear-gradient(135deg,#dbeafe,#eff6ff)" if je_ja else "white"
-    border = "border:2px solid #1a3a8f;" if je_ja else ""
+    border = "border:2px solid #1E3A8A;" if je_ja else ""
     avg_a = red.get('avg_anamneza', 0)
     avg_k = red.get('avg_komunikacija', 0)
     avg_s = red.get('avg_sigurnost', 0)
@@ -849,7 +877,7 @@ def _leaderboard_red(i, red, ja, medalje, vrijednost, label_vr):
                 <div style="font-size:13px;color:#64748b">{red['institucija']} · {red['slucajeva']} slučaj/eva</div>
             </div>
             <div style="text-align:right;flex-shrink:0">
-                <div style="font-size:26px;font-weight:800;color:#1a3a8f">{vrijednost}</div>
+                <div style="font-size:26px;font-weight:800;color:#1E3A8A">{vrijednost}</div>
                 <div style="font-size:12px;color:#94a3b8">{label_vr}</div>
             </div>
         </div>
@@ -932,7 +960,7 @@ def prikazi_leaderboard():
     # ── TAB 2: Ukupni bodovi ──
     with tab_ukupno:
         st.markdown("""
-        <div style="background:linear-gradient(135deg,#1a3a8f,#0f2560);border-radius:14px;
+        <div style="background:linear-gradient(135deg,#2C6FBE,#1E3A8A);border-radius:14px;
              padding:16px 20px;margin-bottom:16px;color:white">
             <div style="font-size:13px;opacity:0.8">Rangiranje po</div>
             <div style="font-size:18px;font-weight:700">Ukupnom zbiru bodova</div>
@@ -1121,7 +1149,7 @@ def prikazi_login():
 
         st.markdown("""
         <div style='text-align:center;margin:16px 0 28px'>
-            <h2 style='color:#1a3a8f;margin-bottom:4px'>Clinical Case Simulator</h2>
+            <h2 style='color:#1E3A8A;margin-bottom:4px'>Clinical Case Simulator</h2>
             <p style='color:#64748b;margin:0'>Edu Pharma Community · Farmaceutski trening</p>
         </div>
         """, unsafe_allow_html=True)
@@ -1129,7 +1157,7 @@ def prikazi_login():
         # ── Prijava sekcija ──
         st.markdown("""
         <div style='background:white;border-radius:16px;padding:24px;margin-bottom:20px;
-             box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid #0D8A9E'>
+             box-shadow:0 2px 8px rgba(0,0,0,0.06);border-top:4px solid #2FB7C6'>
             <div style='font-size:20px;font-weight:700;color:#1e293b;margin-bottom:4px'>Prijava</div>
             <div style='font-size:14px;color:#64748b'>Unesite podatke za pristup svom nalogu</div>
         </div>
@@ -1266,7 +1294,7 @@ if odabrani_id is None:
 
     def prikazi_karticu(sc_id, sc, uradjen):
         status_bg = "#dcfce7" if uradjen else "#dbeafe"
-        status_boja = "#16a34a" if uradjen else "#0D8A9E"
+        status_boja = "#16a34a" if uradjen else "#2C6FBE"
         status_tekst = "Završeno" if uradjen else "Dostupno"
         border_top = f"border-top: 4px solid {status_boja};"
 
@@ -1405,7 +1433,7 @@ if not stanje["zavrseno"]:
     # JavaScript countdown tajmer
     st.markdown(f"""
     <div id="timerBar" style="background:#e2e8f0;border-radius:8px;height:6px;margin:-8px 0 16px;overflow:hidden">
-        <div id="timerFill" style="background:linear-gradient(90deg,#1CB5C5,#0D8A9E);height:100%;
+        <div id="timerFill" style="background:linear-gradient(90deg,#2FB7C6,#2C6FBE);height:100%;
              width:{(preostalo_s/TAJMER_SEKUNDI)*100}%;border-radius:8px;transition:width 1s linear"></div>
     </div>
     <script>

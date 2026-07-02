@@ -6,6 +6,7 @@ Supabase backend · Leaderboard · Cross-device persistence · Beautiful UI
 import json
 import os
 import hashlib
+import secrets
 import time
 import urllib.request
 import urllib.error
@@ -425,6 +426,8 @@ def db_login(email, lozinka):
         k = r.data[0]
         if k["password_hash"] != hash_loz(lozinka):
             return None, "Pogrešna lozinka."
+        if k.get("suspended", False):
+            return None, "Vaš nalog je privremeno suspendovan. Kontaktirajte administratora."
         if not k.get("approved", False):
             return None, "Vaš nalog čeka odobrenje. Kontaktirajte semir.mehovic1989@gmail.com"
         return k, "ok"
@@ -442,21 +445,26 @@ def db_vec_uradio(email, scenario_id):
         return False
 
 
-def db_spremi(email, scenario_id, rezultat):
+def db_spremi(email, scenario_id, rezultat, transkript=""):
     if not db:
         return
+    red = {
+        "user_email": email,
+        "scenario_id": scenario_id,
+        "score": float(rezultat.get("ukupna_ocjena", 0)),
+        "anamneza": int(rezultat.get("anamneza", 0)),
+        "komunikacija": int(rezultat.get("komunikacija", 0)),
+        "sigurnost": int(rezultat.get("sigurnost", 0)),
+        "result_json": json.dumps(rezultat, ensure_ascii=False),
+    }
     try:
-        db.table("attempts").insert({
-            "user_email": email,
-            "scenario_id": scenario_id,
-            "score": float(rezultat.get("ukupna_ocjena", 0)),
-            "anamneza": int(rezultat.get("anamneza", 0)),
-            "komunikacija": int(rezultat.get("komunikacija", 0)),
-            "sigurnost": int(rezultat.get("sigurnost", 0)),
-            "result_json": json.dumps(rezultat, ensure_ascii=False),
-        }).execute()
+        db.table("attempts").insert({**red, "transcript": transkript}).execute()
     except Exception:
-        pass
+        # Fallback ako kolona 'transcript' još ne postoji u bazi
+        try:
+            db.table("attempts").insert(red).execute()
+        except Exception:
+            pass
 
 
 def db_dohvati_ocjenu(email, scenario_id):
@@ -581,6 +589,96 @@ def db_svi_korisnici():
         return r.data or []
     except Exception:
         return []
+
+
+def db_resetuj_lozinku(email):
+    """Postavlja privremenu lozinku i vraća je (None uz grešku)."""
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return None
+    try:
+        abeceda = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
+        privremena = "".join(secrets.choice(abeceda) for _ in range(10))
+        db.table("users").update({"password_hash": hash_loz(privremena)}).eq("email", email).execute()
+        return privremena
+    except Exception as e:
+        st.error(f"DB greška (reset lozinke): {e}")
+        return None
+
+
+def db_postavi_suspenziju(email, suspendovan):
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return False
+    try:
+        db.table("users").update({"suspended": suspendovan}).eq("email", email).execute()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (suspenzija): {e}")
+        return False
+
+
+def db_pokusaji_korisnika(email):
+    """Svi pokušaji jednog korisnika, s transkriptom (za admin pregled)."""
+    if not db:
+        return []
+    try:
+        r = db.table("attempts").select("*").eq("user_email", email).order("completed_at", desc=True).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+# ─── Žalbe na ocjenu ─────────────────────────────────────────────────────────
+def db_posalji_zalbu(attempt_id, tekst):
+    if not db:
+        return False, "Baza podataka nije dostupna."
+    try:
+        db.table("attempts").update({
+            "appeal_status": "otvorena",
+            "appeal_text": tekst.strip(),
+        }).eq("id", attempt_id).execute()
+        return True, "ok"
+    except Exception as e:
+        return False, f"Greška: {e}"
+
+
+def db_otvorene_zalbe():
+    if not db:
+        return []
+    try:
+        r = db.table("attempts").select("*").eq("appeal_status", "otvorena").order("completed_at", desc=True).execute()
+        return r.data or []
+    except Exception:
+        return []
+
+
+def db_rijesi_zalbu(attempt_id, status, odgovor, nove_ocjene=None):
+    """Zatvara žalbu ('rijesena'/'odbijena'); opcionalno ispravlja ocjene."""
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return False
+    try:
+        payload = {"appeal_status": status, "appeal_response": odgovor.strip()}
+        if nove_ocjene:
+            a = int(nove_ocjene["anamneza"])
+            k = int(nove_ocjene["komunikacija"])
+            s = int(nove_ocjene["sigurnost"])
+            ukupna = round(a * 0.4 + k * 0.3 + s * 0.3, 2)
+            payload.update({"anamneza": a, "komunikacija": k, "sigurnost": s, "score": ukupna})
+            r = db.table("attempts").select("result_json").eq("id", attempt_id).execute()
+            if r.data and r.data[0].get("result_json"):
+                rez = json.loads(r.data[0]["result_json"])
+                rez.update({
+                    "anamneza": a, "komunikacija": k, "sigurnost": s,
+                    "ukupna_ocjena": ukupna, "korigovano_od_admina": True,
+                })
+                payload["result_json"] = json.dumps(rez, ensure_ascii=False)
+        db.table("attempts").update(payload).eq("id", attempt_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"DB greška (žalba): {e}")
+        return False
 
 
 # ─── Email notifikacija (Resend) ─────────────────────────────────────────────
@@ -803,7 +901,7 @@ def pokreni_evaluaciju(stanje, sc, sc_id):
     if rezultat:
         stanje["ocjena"] = rezultat
         stanje["zavrseno"] = True
-        db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat)
+        db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript)
     else:
         st.error("Greška pri analizi ocjene. Pokušaj ponovo.")
         stanje["zavrseno"] = False
@@ -1038,6 +1136,39 @@ def prikazi_moje_rezultate():
         </div>
         """, unsafe_allow_html=True)
 
+        # ── Žalba na ocjenu ──
+        status_zalbe = r.get("appeal_status")
+        if status_zalbe == "otvorena":
+            st.info("Vaša žalba je poslana i čeka pregled administratora.")
+        elif status_zalbe == "rijesena":
+            st.success(
+                "**Žalba riješena — ocjena je ispravljena.**"
+                + (f" Odgovor: {r.get('appeal_response','')}" if r.get("appeal_response") else "")
+            )
+        elif status_zalbe == "odbijena":
+            st.warning(
+                "**Žalba pregledana — ocjena je zadržana.**"
+                + (f" Odgovor: {r.get('appeal_response','')}" if r.get("appeal_response") else "")
+            )
+        elif r.get("id") is not None:
+            with st.expander("Prijavi problem s ocjenom"):
+                with st.form(f"zalba_forma_{r['id']}"):
+                    tekst = st.text_area(
+                        "Opišite šta smatrate netačnim u ocjeni",
+                        placeholder="Npr. pitao/la sam za trudnoću, a evaluacija kaže da nisam...",
+                    )
+                    if st.form_submit_button("Pošalji žalbu", type="primary"):
+                        if len(tekst.strip()) < 10:
+                            st.error("Molimo opišite problem (najmanje 10 znakova).")
+                        else:
+                            ok, msg = db_posalji_zalbu(r["id"], tekst)
+                            if ok:
+                                st.success("Žalba poslana! Administrator će je pregledati.")
+                                time.sleep(1.2)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+
 
 def prikazi_admin():
     st.markdown("## Admin panel")
@@ -1067,75 +1198,210 @@ def prikazi_admin():
                 st.info(f"Korisnik **{ime_k}** ({email_k}) je obrisan.")
             else:
                 st.error(f"Greška pri brisanju korisnika {email_k}.")
+        elif akcija["tip"] == "suspenduj":
+            if db_postavi_suspenziju(email_k, True):
+                st.warning(f"Korisnik **{ime_k}** je suspendovan — više se ne može prijaviti.")
+        elif akcija["tip"] == "aktiviraj":
+            if db_postavi_suspenziju(email_k, False):
+                st.success(f"Korisnik **{ime_k}** je ponovo aktivan.")
+        elif akcija["tip"] == "reset":
+            privremena = db_resetuj_lozinku(email_k)
+            if privremena:
+                st.success(f"Privremena lozinka za **{ime_k}** ({email_k}):")
+                st.code(privremena)
+                st.caption("Pošaljite je korisniku — prikazuje se samo sada i ne može se ponovo vidjeti.")
 
-    # ── Zahtjevi na čekanju ──
-    st.markdown("### Zahtjevi na čekanju")
-    neodobreni = db_neodobreni_korisnici()
+    flash = st.session_state.pop("admin_flash", None)
+    if flash:
+        st.success(flash)
 
-    if not neodobreni:
-        st.markdown("""
-        <div style="text-align:center;padding:40px;color:#94a3b8">
-            <div style="font-size:16px;font-weight:600;color:#94a3b8">—</div>
-            <div style="margin-top:8px">Nema zahtjeva na čekanju.</div>
-        </div>""", unsafe_allow_html=True)
-    else:
-        st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.")
-        for i, k in enumerate(neodobreni):
-            st.markdown(f"""
-            <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:4px;
-                 box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #f59e0b">
-                <div style="font-weight:700;color:#1e293b">{k.get('full_name','—')}</div>
-                <div style="font-size:13px;color:#64748b;margin-top:3px">
-                    {k['email']} · {k.get('institution','—')}
-                </div>
-                <div style="font-size:12px;color:#94a3b8;margin-top:2px">
-                    Registrovan: {str(k.get('created_at',''))[:16]}
-                </div>
+    zalbe = db_otvorene_zalbe()
+    tab_zahtjevi, tab_korisnici, tab_zalbe, tab_transkripti = st.tabs([
+        "Zahtjevi", "Korisnici",
+        f"Žalbe ({len(zalbe)})" if zalbe else "Žalbe",
+        "Transkripti",
+    ])
+
+    # ══ TAB 1: Zahtjevi na čekanju ══
+    with tab_zahtjevi:
+        neodobreni = db_neodobreni_korisnici()
+
+        if not neodobreni:
+            st.markdown("""
+            <div style="text-align:center;padding:40px;color:#94a3b8">
+                <div style="font-size:16px;font-weight:600;color:#94a3b8">—</div>
+                <div style="margin-top:8px">Nema zahtjeva na čekanju.</div>
             </div>""", unsafe_allow_html=True)
+        else:
+            st.info(f"**{len(neodobreni)}** korisnik/a čeka odobrenje.")
+            for i, k in enumerate(neodobreni):
+                st.markdown(f"""
+                <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:4px;
+                     box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #f59e0b">
+                    <div style="font-weight:700;color:#1e293b">{k.get('full_name','—')}</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:3px">
+                        {k['email']} · {k.get('institution','—')}
+                    </div>
+                    <div style="font-size:12px;color:#94a3b8;margin-top:2px">
+                        Registrovan: {str(k.get('created_at',''))[:16]}
+                    </div>
+                </div>""", unsafe_allow_html=True)
 
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.button("Odobri", key=f"odobri_{i}", type="primary", use_container_width=True):
-                    st.session_state["admin_akcija"] = {
-                        "tip": "odobri", "email": k["email"],
-                        "ime": k.get("full_name", k["email"]),
-                    }
-                    st.rerun()
-            with col_b:
-                if st.button("Odbij", key=f"odbij_{i}", type="secondary", use_container_width=True):
-                    st.session_state["admin_akcija"] = {
-                        "tip": "odbij", "email": k["email"],
-                        "ime": k.get("full_name", k["email"]),
-                    }
-                    st.rerun()
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if st.button("Odobri", key=f"odobri_{i}", type="primary", use_container_width=True):
+                        st.session_state["admin_akcija"] = {
+                            "tip": "odobri", "email": k["email"],
+                            "ime": k.get("full_name", k["email"]),
+                        }
+                        st.rerun()
+                with col_b:
+                    if st.button("Odbij", key=f"odbij_{i}", type="secondary", use_container_width=True):
+                        st.session_state["admin_akcija"] = {
+                            "tip": "odbij", "email": k["email"],
+                            "ime": k.get("full_name", k["email"]),
+                        }
+                        st.rerun()
 
-    st.divider()
+    # ══ TAB 2: Korisnici — pretraga, reset lozinke, suspenzija, brisanje ══
+    with tab_korisnici:
+        odobreni = db_svi_korisnici()
+        if not odobreni:
+            st.caption("Nema odobrenih korisnika.")
+        else:
+            pretraga = st.text_input(
+                "Pretraga korisnika", placeholder="Ime, email ili institucija...",
+                label_visibility="collapsed",
+            )
+            if pretraga:
+                p = pretraga.lower().strip()
+                odobreni = [
+                    k for k in odobreni
+                    if p in f"{k.get('full_name','')} {k['email']} {k.get('institution','')}".lower()
+                ]
+            st.caption(f"Prikazano: **{len(odobreni)}** korisnik/a")
 
-    # ── Lista odobrenih korisnika ──
-    st.markdown("### Odobreni korisnici")
-    odobreni = db_svi_korisnici()
-    if not odobreni:
-        st.caption("Nema odobrenih korisnika.")
-    else:
-        st.caption(f"Ukupno: **{len(odobreni)}** korisnik/a")
-        for i, k in enumerate(odobreni):
-            st.markdown(f"""
-            <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:4px;
-                 box-shadow:0 1px 3px rgba(0,0,0,0.05);display:flex;align-items:center;gap:12px">
-                <div style="flex:1">
-                    <div style="font-weight:600;color:#1e293b">{k.get('full_name','—')}</div>
-                    <div style="font-size:13px;color:#64748b">{k.get('institution','')} · {k['email']}</div>
-                </div>
-                <span style="background:#dcfce7;color:#16a34a;padding:4px 12px;border-radius:16px;
-                      font-size:12px;font-weight:600">Aktivan</span>
+            for k in odobreni:
+                susp = k.get("suspended", False)
+                badge_bg, badge_boja, badge_txt = (
+                    ("#fef2f2", "#dc2626", "Suspendovan") if susp
+                    else ("#dcfce7", "#16a34a", "Aktivan")
+                )
+                st.markdown(f"""
+                <div style="background:white;border-radius:12px;padding:14px 20px;margin-bottom:4px;
+                     box-shadow:0 1px 3px rgba(0,0,0,0.05);display:flex;align-items:center;gap:12px">
+                    <div style="flex:1">
+                        <div style="font-weight:600;color:#1e293b">{k.get('full_name','—')}</div>
+                        <div style="font-size:13px;color:#64748b">{k.get('institution','')} · {k['email']}</div>
+                    </div>
+                    <span style="background:{badge_bg};color:{badge_boja};padding:4px 12px;border-radius:16px;
+                          font-size:12px;font-weight:600">{badge_txt}</span>
+                </div>""", unsafe_allow_html=True)
+
+                if k["email"] != ADMIN_EMAIL:
+                    c1, c2, c3 = st.columns(3)
+                    ime_k = k.get("full_name", k["email"])
+                    with c1:
+                        if st.button("Resetuj lozinku", key=f"reset_{k['email']}", use_container_width=True):
+                            st.session_state["admin_akcija"] = {"tip": "reset", "email": k["email"], "ime": ime_k}
+                            st.rerun()
+                    with c2:
+                        akcija_txt = "Aktiviraj" if susp else "Suspenduj"
+                        akcija_tip = "aktiviraj" if susp else "suspenduj"
+                        if st.button(akcija_txt, key=f"susp_{k['email']}", use_container_width=True):
+                            st.session_state["admin_akcija"] = {"tip": akcija_tip, "email": k["email"], "ime": ime_k}
+                            st.rerun()
+                    with c3:
+                        if st.button("Obriši", key=f"brisi_{k['email']}", use_container_width=True):
+                            st.session_state["admin_akcija"] = {"tip": "brisi", "email": k["email"], "ime": ime_k}
+                            st.rerun()
+
+    # ══ TAB 3: Žalbe na ocjene ══
+    with tab_zalbe:
+        if not zalbe:
+            st.markdown("""
+            <div style="text-align:center;padding:40px;color:#94a3b8">
+                <div style="margin-top:8px">Nema otvorenih žalbi.</div>
             </div>""", unsafe_allow_html=True)
-            if k["email"] != ADMIN_EMAIL:
-                if st.button("Obriši", key=f"brisi_{i}", use_container_width=False):
-                    st.session_state["admin_akcija"] = {
-                        "tip": "brisi", "email": k["email"],
-                        "ime": k.get("full_name", k["email"]),
-                    }
-                    st.rerun()
+        else:
+            imena = {u["email"]: u.get("full_name", u["email"]) for u in db_svi_korisnici()}
+            st.info(f"**{len(zalbe)}** otvorena/e žalba/e na ocjenu.")
+            for z in zalbe:
+                naziv_sc = SCENARIJI.get(z["scenario_id"], {}).get("naziv", z["scenario_id"])
+                ime_z = imena.get(z["user_email"], z["user_email"])
+                st.markdown(f"""
+                <div style="background:white;border-radius:14px;padding:18px 22px;margin-bottom:4px;
+                     box-shadow:0 1px 4px rgba(0,0,0,0.07);border-left:4px solid #dc2626">
+                    <div style="font-weight:700;color:#1e293b">{ime_z} · {z['user_email']}</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:3px">{naziv_sc}</div>
+                    <div style="font-size:13px;color:#64748b;margin-top:4px">
+                        Trenutno: <b>{float(z.get('score',0)):.1f}/10</b> ·
+                        A {z.get('anamneza','?')}/10 · K {z.get('komunikacija','?')}/10 · S {z.get('sigurnost','?')}/10
+                    </div>
+                </div>""", unsafe_allow_html=True)
+
+                if z.get("appeal_text"):
+                    st.info(f"**Žalba korisnika:** {z['appeal_text']}")
+                if z.get("transcript"):
+                    with st.expander("Transkript razgovora"):
+                        st.text(z["transcript"])
+                else:
+                    st.caption("Transkript nije sačuvan za ovaj pokušaj.")
+
+                with st.form(f"zalba_{z['id']}"):
+                    c1, c2, c3 = st.columns(3)
+                    a = c1.number_input("Anamneza", 0, 10, int(z.get("anamneza") or 0))
+                    kk = c2.number_input("Komunikacija", 0, 10, int(z.get("komunikacija") or 0))
+                    s = c3.number_input("Sigurnost", 0, 10, int(z.get("sigurnost") or 0))
+                    st.caption(f"Nova ukupna ocjena: **{a*0.4 + kk*0.3 + s*0.3:.1f}/10** (0.4·A + 0.3·K + 0.3·S)")
+                    odgovor = st.text_area("Odgovor korisniku (obavezno)", placeholder="Obrazloženje odluke...")
+                    cb1, cb2 = st.columns(2)
+                    ispravi = cb1.form_submit_button("Ispravi ocjenu i riješi", type="primary", use_container_width=True)
+                    odbij = cb2.form_submit_button("Odbij žalbu (zadrži ocjenu)", use_container_width=True)
+
+                if ispravi or odbij:
+                    if not odgovor.strip():
+                        st.error("Upišite odgovor korisniku prije zatvaranja žalbe.")
+                    else:
+                        if ispravi:
+                            ok = db_rijesi_zalbu(z["id"], "rijesena", odgovor,
+                                                 {"anamneza": a, "komunikacija": kk, "sigurnost": s})
+                            poruka = f"Žalba korisnika {ime_z} riješena — ocjena ispravljena."
+                        else:
+                            ok = db_rijesi_zalbu(z["id"], "odbijena", odgovor)
+                            poruka = f"Žalba korisnika {ime_z} odbijena — ocjena zadržana."
+                        if ok:
+                            st.session_state["admin_flash"] = poruka
+                            st.rerun()
+                st.divider()
+
+    # ══ TAB 4: Transkripti razgovora ══
+    with tab_transkripti:
+        korisnici = db_svi_korisnici()
+        if not korisnici:
+            st.caption("Nema korisnika.")
+        else:
+            opcije = {f"{k.get('full_name','—')} ({k['email']})": k["email"] for k in korisnici}
+            izbor = st.selectbox("Odaberite korisnika", list(opcije.keys()))
+            pokusaji = db_pokusaji_korisnika(opcije[izbor])
+            if not pokusaji:
+                st.caption("Ovaj korisnik još nema završenih scenarija.")
+            for pk in pokusaji:
+                naziv_sc = SCENARIJI.get(pk["scenario_id"], {}).get("naziv", pk["scenario_id"])
+                datum = str(pk.get("completed_at", ""))[:16].replace("T", " ")
+                with st.expander(f"{naziv_sc} · {datum} · {float(pk.get('score',0)):.1f}/10"):
+                    st.markdown(
+                        f"**Anamneza:** {pk.get('anamneza','?')}/10 · "
+                        f"**Komunikacija:** {pk.get('komunikacija','?')}/10 · "
+                        f"**Sigurnost:** {pk.get('sigurnost','?')}/10"
+                    )
+                    if pk.get("appeal_status"):
+                        st.caption(f"Žalba: {pk['appeal_status']}"
+                                   + (f" · Odgovor: {pk.get('appeal_response','')}" if pk.get("appeal_response") else ""))
+                    if pk.get("transcript"):
+                        st.text(pk["transcript"])
+                    else:
+                        st.caption("Transkript nije sačuvan (pokušaj prije uvođenja ove funkcije).")
 
 
 def prikazi_login():

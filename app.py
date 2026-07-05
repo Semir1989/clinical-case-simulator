@@ -3,6 +3,7 @@ Clinical Case Simulator — Edu Pharma Community
 Supabase backend · Leaderboard · Cross-device persistence · Beautiful UI
 """
 
+import base64
 import csv
 import io
 import json
@@ -16,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 import streamlit as st
+import streamlit.components.v1 as components
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
@@ -1220,6 +1222,110 @@ def pokreni_evaluaciju(stanje, sc, sc_id):
         stanje["zavrseno"] = False
 
 
+# ─── AI Generator scenarija (admin) ──────────────────────────────────────────
+GENERATOR_SISTEM = """Ti si arhitekta kliničkih simulacija za edukaciju farmaceuta — spoj kliničkog \
+farmakologa, iskusnog javnog farmaceuta iz Bosne i Hercegovine i dizajnera OSCE ispita. \
+Iz naučnog case reporta (PDF) gradiš scenarij za simulator u kojem AI glumi pacijenta koji ulazi \
+u javnu apoteku, a farmaceut-polaznik kroz razgovor od najviše 7 poteza mora otkriti skriveni \
+problem i sigurno savjetovati.
+
+PRINCIPI DIZAJNA — svi su OBAVEZNI:
+
+1. TRANSPOZICIJA U APOTEKU: Slučaj iz bolničkog/naučnog konteksta prebaci u realan prvi kontakt u \
+apoteci u BiH — trenutak PRIJE postavljanja dijagnoze iz rada, kada je farmaceut mogao biti prva \
+linija koja hvata problem. Pacijent dolazi s banalnim, svakodnevnim zahtjevom (nešto protiv bolova, \
+"nešto za smirenje", ponovna kupovina preparata...) koji prikriva ozbiljan problem iz case reporta.
+
+2. LOKALIZACIJA: Bosansko ime pacijenta, prirodan govor laika na bosanskom jeziku, lijekovi i \
+dodaci prehrani koji realno postoje na tržištu BiH (koristi INN nazive ili brendove prisutne u BiH). \
+Doze i klinički detalji moraju ostati vjerni case reportu.
+
+3. SKRIVENI DETALJI: Pacijent NIŠTA ključno ne otkriva sam. Razbij kliničku sliku na 6-10 \
+konkretnih činjenica koje se otkrivaju SAMO na ciljano pitanje (vremenski slijed simptoma, tačna \
+terapija s dozama, OTC/biljni preparati, nalazi ljekara ako ih ima, navike, komorbiditeti). \
+Pacijent lijekove opisuje kao laik ("male bijele tablete za pritisak"), ne farmakološki. \
+Uključi i razlog zašto nešto prešućuje (stid, strah, misli da nije važno).
+
+4. KRITIČKO RAZMIŠLJANJE — slučaj mora biti TEŽAK: \
+(a) ugradi barem jedan lažni trag (red herring) — plauzibilno ali pogrešno objašnjenje koje se nudi \
+površnom ispitivaču (npr. simptom liči na stres, menopauzu, "to je od godina"); \
+(b) ključ rješenja je u POVEZIVANJU činjenica (vremenski slijed uzimanja i simptoma, interakcija, \
+maskirana nuspojava), ne u jednoj očiglednoj informaciji; \
+(c) atipična prezentacija iz case reporta treba ostati atipična — bez pojednostavljivanja.
+
+5. CRVENE ZASTAVICE: Jasno navedi šta farmaceut mora prepoznati, mehanizam (interakcija, \
+kontraindikacija, nuspojava — imenuj enzime/mehanizme gdje je relevantno) i koja je ispravna \
+akcija (prekid, odbijanje izdavanja, hitno upućivanje — kome i zašto).
+
+6. SIGURNOSNA LEKCIJA: Scenarij mora imati nedvosmislenu ispravnu odluku i barem jednu FATALNU \
+grešku (npr. izdati traženi lijek, preporučiti simptomatsku terapiju koja maskira problem) koja se \
+u rubrici kažnjava sa 0/10 za Sigurnost.
+
+7. RUBRIKA — strogo zadrži ovaj format (bez dijakritike unutar rubrike, kao u primjeru):
+Ocijeni po ovim kategorijama (svaka 0-10):
+
+ANAMNEZA (tezina 0.4): <5 konkretnih kriterija vezanih za OVAJ slucaj, svaki (2)>
+KAZNA: <2 pravila: bez kljucnog pitanja X max N/10; ...>
+
+KOMUNIKACIJA (tezina 0.3): jezik laika(2), empatija bez osudjivanja(2), provjerio razumijevanje(2), strukturisan razgovor(2), jasna poruka(2)
+
+SIGURNOST (tezina 0.3): <4 konkretna kriterija za OVAJ slucaj, bodovi u zbiru 10>
+KAZNA: <fatalna greska> = 0/10 za Sigurnost; <druga ozbiljna greska> = max 3/10 za Sigurnost
+
+8. POČETNA PORUKA: Prva replika pacijenta — prirodna, kratka, s banalnim zahtjevom; NE otkriva \
+ključni problem.
+
+IZLAZ: Vrati ISKLJUČIVO validan JSON (bez markdown ograda, bez teksta prije/poslije) sa poljima:
+{"naziv": "Scenarij — <kratak naslov bez spojlera>",
+ "ime": "<bosansko ime>",
+ "godine": <broj>,
+ "tegoba": "<razlog dolaska + kratka emocionalna nota, npr. 'djeluje umorno'>",
+ "terapija": "<terapija koju pacijent priznaje odmah — nepotpuna slika>",
+ "skriveni_detalji": "<sve skrivene činjenice, odvojene tačka-zarezom>",
+ "crvene_zastavice": "<zastavice + mehanizam + ispravna akcija, odvojene tačka-zarezom>",
+ "ocekivano": "<očekivani koraci savjetovanja, odvojeni tačka-zarezom>",
+ "pocetna_poruka": "<prva replika pacijenta>",
+ "rubrika": "<rubrika u formatu iz tačke 7>",
+ "obrazlozenje": "<za admina: sažetak case reporta (dijagnoza, ishod), šta je pedagoški cilj, gdje je lažni trag i zašto je slučaj težak — 4-6 rečenica>"}"""
+
+
+def generisi_scenarij_iz_pdfa(pdf_bytes, tezina, smjernice):
+    """Šalje PDF case report Claudeu i vraća generisani scenarij (dict) ili None."""
+    upute = (
+        f"Nivo težine: {tezina}.\n"
+        + ("Ekspertni nivo: dodaj i drugi sloj problema (npr. interakcija koja se vidi tek "
+           "kad se otkrije kompletna terapija) i pojačaj lažni trag.\n"
+           if tezina == "Ekspertno" else "")
+        + (f"Dodatne smjernice admina: {smjernice.strip()}\n" if smjernice.strip() else "")
+        + "Analiziraj priloženi case report i kreiraj scenarij prema uputama."
+    )
+    r = ai.messages.create(
+        model="claude-sonnet-4-6", max_tokens=8000,
+        system=GENERATOR_SISTEM,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "document", "source": {
+                    "type": "base64", "media_type": "application/pdf",
+                    "data": base64.standard_b64encode(pdf_bytes).decode(),
+                }},
+                {"type": "text", "text": upute},
+            ],
+        }],
+    )
+    db_log_upotrebu("generisanje_scenarija", "",
+                    r.usage.input_tokens, r.usage.output_tokens)
+    return izvuci_json(r.content[0].text)
+
+
+def sljedeci_scenarij_id():
+    """Prvi slobodan ID oblika scenarij_N."""
+    n = 1
+    while f"scenarij_{n}" in SCENARIJI:
+        n += 1
+    return f"scenarij_{n}"
+
+
 # ─── UI Komponente ────────────────────────────────────────────────────────────
 def kartica(sadrzaj_html, padding="20px 24px"):
     st.markdown(f"""
@@ -1582,10 +1688,10 @@ def prikazi_admin():
 
     zalbe = db_otvorene_zalbe()
     (tab_stat, tab_zahtjevi, tab_korisnici, tab_zalbe,
-     tab_transkripti, tab_scenariji, tab_objave, tab_email) = st.tabs([
+     tab_transkripti, tab_scenariji, tab_ai_gen, tab_objave, tab_email) = st.tabs([
         "Statistika", "Zahtjevi", "Korisnici",
         f"Žalbe ({len(zalbe)})" if zalbe else "Žalbe",
-        "Transkripti", "Scenariji", "Objave", "Email",
+        "Transkripti", "Scenariji", "AI Generator", "Objave", "Email",
     ])
 
     # ══ TAB 1: Zahtjevi na čekanju ══
@@ -2053,6 +2159,105 @@ def prikazi_admin():
                     )
                     st.rerun()
 
+    # ══ TAB: AI Generator scenarija iz PDF case reporta ══
+    with tab_ai_gen:
+        st.caption(
+            "Uploadujte case report (PDF, npr. sa PubMeda) — Claude će kreirati "
+            "kompletan scenarij: pacijenta, skrivene detalje, crvene zastavice i "
+            "rubriku za ocjenjivanje. Prije spremanja sve možete pregledati i urediti."
+        )
+        pdf_up = st.file_uploader("Case report (PDF)", type=["pdf"], key="ai_gen_pdf")
+        c_t, c_s = st.columns([1, 2])
+        tezina_in = c_t.radio("Težina", ["Teško", "Ekspertno"], key="ai_gen_tezina")
+        smjernice_in = c_s.text_area(
+            "Dodatne smjernice (opcionalno)", height=95, key="ai_gen_smjernice",
+            placeholder="Npr. fokus na interakcije; pacijent neka bude stariji muškarac; "
+                        "naglasak na OTC samoliječenje...",
+        )
+        if st.button("Generiši scenarij", type="primary", disabled=pdf_up is None,
+                     key="ai_gen_dugme"):
+            pdf_bytes = pdf_up.getvalue()
+            if len(pdf_bytes) > 30 * 1024 * 1024:
+                st.error("PDF je prevelik (max 30 MB).")
+            else:
+                with st.spinner("Claude analizira case report i gradi scenarij (30-60 s)..."):
+                    try:
+                        rezultat = generisi_scenarij_iz_pdfa(pdf_bytes, tezina_in, smjernice_in)
+                    except Exception as e:
+                        zabiljezi_gresku(e)
+                        rezultat = None
+                        st.error(f"Greška pri pozivu AI-ja: {e}")
+                if rezultat and rezultat.get("pocetna_poruka"):
+                    st.session_state["ai_gen_scenarij"] = rezultat
+                    st.rerun()
+                elif rezultat is not None:
+                    st.error("AI nije vratio ispravan scenarij. Pokušajte ponovo.")
+
+        gen = st.session_state.get("ai_gen_scenarij")
+        if gen:
+            st.success("Scenarij generisan — pregledajte, uredite po potrebi i spremite.")
+            with st.expander("Obrazloženje AI-ja (sažetak case reporta i pedagoški cilj)",
+                             expanded=True):
+                st.write(gen.get("obrazlozenje", "—"))
+
+            with st.form("ai_gen_forma"):
+                sid_g = st.text_input("ID scenarija", value=sljedeci_scenarij_id())
+                naziv_g = st.text_input("Naziv", value=gen.get("naziv", ""))
+                c1, c2 = st.columns(2)
+                ime_g = c1.text_input("Ime pacijenta", value=gen.get("ime", ""))
+                godine_g = c2.number_input("Godine", 0, 120, int(gen.get("godine") or 40))
+                tegoba_g = st.text_area("Tegoba / razlog posjete",
+                                        value=gen.get("tegoba", ""), height=70)
+                terapija_g = st.text_area("Postojeća terapija",
+                                          value=gen.get("terapija", ""), height=70)
+                skriveni_g = st.text_area("Skriveni detalji",
+                                          value=gen.get("skriveni_detalji", ""), height=180)
+                zastavice_g = st.text_area("Crvene zastavice",
+                                           value=gen.get("crvene_zastavice", ""), height=130)
+                ocekivano_g = st.text_area("Očekivano savjetovanje",
+                                           value=gen.get("ocekivano", ""), height=130)
+                pocetna_g = st.text_input("Početna poruka pacijenta",
+                                          value=gen.get("pocetna_poruka", ""))
+                rubrika_g = st.text_area("Rubrika za ocjenjivanje",
+                                         value=gen.get("rubrika", ""), height=220)
+                aktivan_g = st.checkbox("Aktivan (odmah vidljiv korisnicima)", value=False)
+                cg1, cg2 = st.columns(2)
+                spremi_g = cg1.form_submit_button("Spremi scenarij", type="primary",
+                                                  use_container_width=True)
+                odbaci_g = cg2.form_submit_button("Odbaci", use_container_width=True)
+
+            if odbaci_g:
+                st.session_state.pop("ai_gen_scenarij", None)
+                st.rerun()
+            if spremi_g:
+                if not sid_g.strip() or not naziv_g.strip() or not pocetna_g.strip() \
+                        or not skriveni_g.strip():
+                    st.error("Obavezno: ID, naziv, početna poruka i skriveni detalji.")
+                elif sid_g.strip() in SCENARIJI and not st.session_state.get("ai_gen_prepisi"):
+                    st.session_state["ai_gen_prepisi"] = True
+                    st.warning(f"ID '{sid_g.strip()}' već postoji — klik na 'Spremi scenarij' "
+                               "još jednom će ga prepisati.")
+                else:
+                    ok = db_scenarij_spremi(sid_g, {
+                        "naziv": naziv_g.strip(), "ime": ime_g.strip(),
+                        "godine": int(godine_g), "tegoba": tegoba_g.strip(),
+                        "terapija": terapija_g.strip(),
+                        "skriveni_detalji": skriveni_g.strip(),
+                        "crvene_zastavice": zastavice_g.strip(),
+                        "ocekivano": ocekivano_g.strip(),
+                        "pocetna_poruka": pocetna_g.strip(),
+                        "rubrika": rubrika_g.strip(), "active": bool(aktivan_g),
+                    })
+                    if ok:
+                        st.session_state.pop("ai_gen_scenarij", None)
+                        st.session_state.pop("ai_gen_prepisi", None)
+                        st.session_state["admin_flash"] = (
+                            f"AI scenarij '{naziv_g.strip()}' spremljen"
+                            + (" i aktivan." if aktivan_g
+                               else " kao draft — aktivirajte ga u tabu Scenariji.")
+                        )
+                        st.rerun()
+
     # ══ TAB: Objave ══
     with tab_objave:
         with st.form("nova_objava"):
@@ -2457,8 +2662,10 @@ if not stanje["zavrseno"]:
 
     preostalo = MAX_POTEZA - stanje["broj_poteza"]
 
-    # ── Tajmer: provjeri da li je isteklo 60s od zadnjeg poteza ──
-    TAJMER_SEKUNDI = 60
+    # ── Tajmer: 120s po odgovoru; istek NE briše razgovor, samo troši pokušaj ──
+    # Kazna se obračunava lijeno (pri sljedećoj interakciji) — poruka koju korisnik
+    # pošalje nakon isteka se normalno obrađuje, bez rerun-a koji bi je progutao.
+    TAJMER_SEKUNDI = 120
     sad = time.time()
     if "zadnji_potez_vrijeme" not in stanje:
         stanje["zadnji_potez_vrijeme"] = sad
@@ -2467,57 +2674,69 @@ if not stanje["zavrseno"]:
     propusteni = int(proteklo // TAJMER_SEKUNDI)
 
     if propusteni > 0 and preostalo > 0:
-        stanje["broj_poteza"] += min(propusteni, preostalo)
+        izgubljeno = min(propusteni, preostalo)
+        stanje["broj_poteza"] += izgubljeno
+        stanje["izgubljeno_ukupno"] = stanje.get("izgubljeno_ukupno", 0) + izgubljeno
         stanje["zadnji_potez_vrijeme"] = sad
+        proteklo = 0
         preostalo = MAX_POTEZA - stanje["broj_poteza"]
         if preostalo <= 0:
-            st.warning("Vrijeme je isteklo za sve pokušaje. Savjetovanje se završava.")
+            st.warning("Vrijeme je isteklo za sve pokušaje. Savjetovanje se završava i ocjenjuje.")
             pokreni_evaluaciju(stanje, sc, odabrani_id)
             st.rerun()
-        else:
-            st.warning(f"Izgubili ste {min(propusteni, preostalo + propusteni)} pokušaj/a jer niste odgovorili na vrijeme.")
-            st.rerun()
+
+    if stanje.get("izgubljeno_ukupno"):
+        st.warning(
+            f"Zbog isteka vremena do sada ste izgubili {stanje['izgubljeno_ukupno']} pokušaj(a). "
+            "Razgovor i vaše poruke ostaju sačuvani."
+        )
 
     preostalo_s = int(TAJMER_SEKUNDI - (proteklo % TAJMER_SEKUNDI))
 
-    # Prikaz preostalih pokušaja + tajmer
-    t_col1, t_col2 = st.columns([1, 1])
-    with t_col1:
-        st.caption(f"Preostalo unosa: **{preostalo} / {MAX_POTEZA}**")
-    with t_col2:
-        st.caption(f"Vrijeme za odgovor: **{preostalo_s}s**")
+    st.caption(f"Preostalo unosa: **{preostalo} / {MAX_POTEZA}**")
 
-    # JavaScript countdown tajmer
-    st.markdown(f"""
-    <div id="timerBar" style="background:#e2e8f0;border-radius:8px;height:6px;margin:-8px 0 16px;overflow:hidden">
-        <div id="timerFill" style="background:linear-gradient(90deg,#2FB7C6,#2C6FBE);height:100%;
-             width:{(preostalo_s/TAJMER_SEKUNDI)*100}%;border-radius:8px;transition:width 1s linear"></div>
-    </div>
-    <script>
-    (function() {{
-        var remaining = {preostalo_s};
-        var total = {TAJMER_SEKUNDI};
-        var fill = window.parent.document.getElementById('timerFill');
-        if (!fill) return;
-        var interval = setInterval(function() {{
-            remaining--;
-            if (remaining <= 0) {{
-                clearInterval(interval);
-                // Streamlit rerun — simuliraj klik na hidden element
-                window.parent.location.reload();
-                return;
-            }}
-            var pct = (remaining / total) * 100;
-            fill.style.width = pct + '%';
-            if (remaining <= 10) {{
-                fill.style.background = 'linear-gradient(90deg, #ef4444, #dc2626)';
-            }} else if (remaining <= 20) {{
-                fill.style.background = 'linear-gradient(90deg, #f59e0b, #d97706)';
-            }}
-        }}, 1000);
-    }})();
-    </script>
-    """, unsafe_allow_html=True)
+    # Countdown tajmer — mora ići kroz components.html jer se <script> u
+    # st.markdown ne izvršava (zato je stari tajmer stajao zamrznut na 59s)
+    timer_html = """
+<div style="font-family:Inter,Arial,sans-serif">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:#51637A;margin-bottom:4px">
+    <span>Vrijeme za odgovor</span>
+    <span id="tNum" style="font-weight:700;font-size:17px;color:#1E3A8A;font-variant-numeric:tabular-nums">--:--</span>
+  </div>
+  <div style="background:#e2e8f0;border-radius:8px;height:8px;overflow:hidden">
+    <div id="tFill" style="background:linear-gradient(90deg,#2FB7C6,#2C6FBE);height:100%;width:100%;transition:width 1s linear"></div>
+  </div>
+  <div id="tMsg" style="display:none;font-size:12.5px;color:#b91c1c;font-weight:600;margin-top:5px">
+    Vrijeme je isteklo — jedan pokušaj se oduzima, ali razgovor i vaš tekst ostaju. Odbrojavanje ide ispočetka.
+  </div>
+</div>
+<script>
+var remaining = __PREOSTALO__;
+var total = __TOTAL__;
+var tNum = document.getElementById('tNum');
+var tFill = document.getElementById('tFill');
+var tMsg = document.getElementById('tMsg');
+function fmt(s) { var m = Math.floor(s/60), ss = s%60; return m + ':' + (ss<10?'0':'') + ss; }
+function boja(s) {
+  if (s <= 15) return 'linear-gradient(90deg,#ef4444,#dc2626)';
+  if (s <= 30) return 'linear-gradient(90deg,#f59e0b,#d97706)';
+  return 'linear-gradient(90deg,#2FB7C6,#2C6FBE)';
+}
+function draw() {
+  tNum.textContent = fmt(remaining);
+  tFill.style.width = (remaining/total*100) + '%';
+  tFill.style.background = boja(remaining);
+  tNum.style.color = remaining <= 15 ? '#b91c1c' : '#1E3A8A';
+}
+draw();
+setInterval(function() {
+  remaining--;
+  if (remaining < 0) { tMsg.style.display = 'block'; remaining = total - 1; }
+  draw();
+}, 1000);
+</script>
+""".replace("__PREOSTALO__", str(preostalo_s)).replace("__TOTAL__", str(TAJMER_SEKUNDI))
+    components.html(timer_html, height=84)
 
     st.markdown("""
     <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px;

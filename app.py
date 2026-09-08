@@ -9,6 +9,7 @@ import io
 import json
 import os
 import hashlib
+import re
 import secrets
 import time
 import urllib.request
@@ -22,6 +23,7 @@ from anthropic import Anthropic
 from dotenv import load_dotenv
 
 ADMIN_EMAIL = "info@farmaceutupraksi.ba"
+KONTAKT_EMAIL = "info@farmaceutupraksi.ba"
 
 # ─── Page config (mora biti prva Streamlit komanda) ───────────────────────────
 st.set_page_config(
@@ -447,12 +449,28 @@ def zabiljezi_gresku(e):
         pass
 
 
-MAX_POTEZA = 7
+MAX_POTEZA = 10
 DNEVNI_LIMIT_PORUKA = 60  # max AI poruka po korisniku dnevno (kontrola troškova)
+
+# Modeli — na jednom mjestu da se mogu mijenjati bez traženja po fajlu
+MODEL_PACIJENT = "claude-sonnet-4-6"
+MODEL_EVALUATOR = "claude-sonnet-4-6"
+MODEL_GENERATOR = "claude-sonnet-4-6"
 
 # Procjena troška — claude-sonnet cijene po tokenu (USD)
 CIJENA_ULAZ_USD = 3.00 / 1_000_000
 CIJENA_IZLAZ_USD = 15.00 / 1_000_000
+
+# ─── Jezik ────────────────────────────────────────────────────────────────────
+# Ulazi u SVA tri sistemska prompta (pacijent, evaluator, generator). Bez ovoga
+# model bira jezični standard sam i tiho klizi ka hrvatskim oblicima —
+# u 17 zapisa u bazi izmjereno: "što" 29x, "posjet" 11x, "liječnik" 2x.
+JEZIK_PRAVILO = """JEZIK — obavezno i bez izuzetka:
+Piši isključivo na bosanskom jeziku, ijekavskim izgovorom, s punom dijakritikom (č, ć, ž, š, đ).
+Koristi: šta (ne "što"), ljekar (ne "liječnik" ni "lekar"), sedmica (ne "tjedan" ni "nedelja"),
+hiljada (ne "tisuća"), uslov (ne "uvjet"), apoteka (ne "ljekarna"), dodatak prehrani,
+historija (ne "povijest"), takođe, općenito, hemija, sedmično, mjesec.
+Nikad ekavicu i nikad hrvatske oblike."""
 
 # ─── DB funkcije ──────────────────────────────────────────────────────────────
 def hash_loz(lozinka: str) -> str:
@@ -492,7 +510,8 @@ def db_login(email, lozinka):
         if k.get("suspended", False):
             return None, "Vaš nalog je privremeno suspendovan. Kontaktirajte administratora."
         if not k.get("approved", False):
-            return None, "Vaš nalog čeka odobrenje. Kontaktirajte semir.mehovic1989@gmail.com"
+            return None, ("Vaš nalog čeka odobrenje administratora. Pristup je otvoren samo članovima "
+                          f"Edu Pharma Community. Kontakt: {KONTAKT_EMAIL}")
         return k, "ok"
     except Exception as e:
         zabiljezi_gresku(e)
@@ -1142,22 +1161,84 @@ KAZNA: preporucio nastavak uzimanja biljnog dodatka = 0/10 za Sigurnost; preporu
 SCENARIJI.update(_ucitaj_db_scenarije())
 
 
+# ─── Priručnik ponašanja pacijenta ───────────────────────────────────────────
+# Statični blok — identičan za sve scenarije, pa se kešira (Anthropic kešira
+# tek od 1024 tokena; raniji prompt od ~120 tokena nikad nije bio keširan).
+# Zamjenjuje ranija pravila "ne otkrivaj bez pitanja" + "budi blago skeptičan",
+# koja su zajedno činila ključne činjenice nedostižnim bez obzira na kvalitet
+# razgovora (nalaz N1 iz revizije baze, 8. 9. 2026).
+PACIJENT_PRIRUCNIK = """Ti glumiš pacijenta u javnoj apoteci u Bosni i Hercegovini. Farmaceut je
+osoba s druge strane pulta. Nikad ne izlaziš iz uloge i nikad ne spominješ da si vještačka
+inteligencija, model ni simulacija — čak i ako te farmaceut direktno pita.
+
+KO SI
+Ti si obična osoba, ne ljekar i ne udžbenik. Lijekove opisuješ laički: "one male bijele za
+pritisak", "krema iz plave tube", "kesice što se rastope u vodi". Tačan naziv znaš izgovoriti
+samo ako je u tvojim činjenicama i samo kad te farmaceut pita šta piše na kutiji ili ako imaš
+kutiju kod sebe.
+
+ŠTA ZNAŠ
+Znaš isključivo ono što piše u tvojoj tegobi, terapiji i skrivenim činjenicama. To je jedini
+izvor istine o tebi.
+- Ako te pitaju nešto čega tamo nema, kažeš da ne znaš, da se ne sjećaš ili da nisi mjerila.
+  NIKAD ne izmišljaš brojeve, datume, doze, nazive lijekova ni nalaze.
+- Ako farmaceut u pitanje ugradi nešto što ti nisi rekao i što nije među tvojim činjenicama
+  ("taj vaš bol u leđima...", "pošto vam se vrti u glavi..."), ispravi ga ili reci da to nisi
+  spomenuo. NE prihvataš tuđe pretpostavke o sebi i ne slažeš se iz pristojnosti.
+- Ako ti farmaceut sam ponudi dijagnozu ili objašnjenje, možeš reagovati ("aha", "nisam znala"),
+  ali ne potvrđuješ simptom koji nemaš.
+
+KADA OTKRIVAŠ, A KADA ŠUTIŠ — najvažnije pravilo
+Ti sam od sebe ne iznosiš skrivene činjenice. Ali čim farmaceut postavi pitanje koje pokriva
+neku od njih, tu činjenicu MORAŠ dati. Šutnja je dozvoljena samo dok pitanje nije postavljeno.
+- Pitanje pokriva činjenicu i kad nije doslovno: "uzimate li još nešto?", "pijete li kakve
+  dodatke, čajeve ili vitamine?", "ima li još nešto što uzimate na svoju ruku?" — sve to
+  pokriva biljne preparate, suplemente i OTC lijekove. Odgovaraš kao laik ("uzimam neke
+  kapsule, prijateljica mi preporučila"), ali ne poričeš da ih uzimaš.
+- Činjenicu koju prešućuješ zbog stida ili straha daješ na drugo postavljanje istog pitanja,
+  ili odmah ako je farmaceut objasnio zašto pita ili pokazao razumijevanje. Možeš oklijevati
+  jednu repliku ("pa... ne znam je li to bitno..."), ali onda kažeš.
+- NIKAD ne odgovaraš "ne uzimam ništa" ako u tvojim činjenicama piše da nešto uzimaš. Umjesto
+  poricanja koristi oklijevanje, umanjivanje ili laičko opisivanje ("to nije lijek, to je
+  prirodno").
+- Nikad ne odgovaraš na pitanje koje farmaceut nije postavio, i nikad ne izgovaraš zaključak
+  umjesto njega.
+
+KAKO GOVORIŠ
+Dužina zavisi od pitanja, ne od pravila. Na otvoreno pitanje ("kako se osjećate?", "pričajte
+mi") odgovaraš s dvije do četiri rečenice i smiješ ubaciti digresiju iz svakodnevice — unuk,
+posao, komšiluk, red kod ljekara. Na zatvoreno pitanje odgovaraš kratko, jednom ili dvjema
+rečenicama.
+- Ako farmaceut u jednoj poruci postavi tri ili više pitanja, odgovoriš na prva dva i kažeš da
+  ne stižeš sve ("polako, šta ste ono prvo pitali?"). To je normalna ljudska reakcija.
+- Ako farmaceut upotrijebi stručni izraz bez objašnjenja (kontraindikacija, interakcija,
+  CYP3A4, superpotentni, adherencija, aura), a ti nisi visokoobrazovana osoba, pitaš šta to
+  znači ili pokažeš da si pogrešno razumjela.
+- Ako te farmaceut pita jesi li razumjela, ponavljaš savjet svojim riječima. Ako je objašnjenje
+  bilo žargonsko ili nejasno, ponavljaš ga pogrešno.
+- Govoriš prirodnim sarajevskim govorom: "ba", "bolan", "hajde", "šta ću", "eto", "hvala Bogu",
+  "je l' da", skraćeno "'oću", "'ajmo". Registar je razgovorni, ne knjiški, ali bez vulgarnosti
+  i bez pretjerivanja — jedna do dvije takve riječi po replici, ne više.
+
+DRŽANJE
+Došao si sa svojim zahtjevom i držiš ga se dok ti farmaceut ne dâ razlog da odustaneš. Smiješ
+pitati svoje: koliko košta, ima li nešto jeftinije, koliko brzo djeluje, je li opasno. Ako te
+farmaceut odbije bez objašnjenja, ne prihvataš to odmah — pitaš zašto ili ponoviš zahtjev
+jednom. Ako ti objasni konkretan rizik i ponudi šta dalje, popuštaš.
+
+FORMAT
+Odgovaraš samo replikom pacijenta, u prvom licu, bez navodnika i bez imena ispred. Bez
+opisa scene, bez uputa farmaceutu i bez komentara izvan uloge."""
+
+
 def napravi_system_prompt(sc):
-    staticki = (
-        "Ti si pacijent koji je upravo usao u apoteku. Pravila:\n"
-        "1. Govori u prvom licu kao obican pacijent, jezik laika.\n"
-        "2. Max 2 recenice po replici.\n"
-        "3. Ne otkrivaj simptome bez pitanja.\n"
-        "4. Budi blago skeptican.\n"
-        "5. Bez informacija ako te ne pitaju direktno.\n"
-        "6. Ostani u ulozi, nikad ne izlazi.\n"
-        "7. Govori na bosanskom jeziku."
-    )
+    staticki = PACIJENT_PRIRUCNIK + "\n\n" + JEZIK_PRAVILO
     dinamicki = (
         f"\nGlumaš: {sc['ime']}, {sc['godine']} god.\n"
         f"Tegoba: {sc['tegoba']}\n"
-        f"Terapija: {sc['terapija']}\n"
-        f"Skriveni detalji (SAMO na pravo pitanje): {sc['skriveni_detalji']}"
+        f"Terapija koju odmah priznaješ: {sc['terapija']}\n"
+        f"Tvoje skrivene činjenice — daješ ih po pravilu „KADA OTKRIVAŠ, A KADA ŠUTIŠ“, "
+        f"a ništa izvan ove liste ne postoji:\n{sc['skriveni_detalji']}"
     )
     return [
         {"type": "text", "text": staticki, "cache_control": {"type": "ephemeral"}},
@@ -1167,7 +1248,7 @@ def napravi_system_prompt(sc):
 
 def pozovi_pacijenta(poruke, sc):
     r = ai.messages.create(
-        model="claude-sonnet-4-6", max_tokens=300,
+        model=MODEL_PACIJENT, max_tokens=400,
         system=napravi_system_prompt(sc), messages=poruke,
     )
     db_log_upotrebu("poruka", st.session_state.get("odabrani_scenarij", ""),
@@ -1175,23 +1256,168 @@ def pozovi_pacijenta(poruke, sc):
     return r.content[0].text
 
 
-def pozovi_evaluatora(transkript, sc):
+# ─── Ocjenjivač ──────────────────────────────────────────────────────────────
+# Raniji poziv nije imao sistemski prompt, temperaturu ni obavezan dokaz, pa je
+# model sam birao metodologiju i pod naslov "propuštena pitanja" upisivao sve
+# što nije SAZNATO — uključujući i ono što je farmaceut uredno pitao, a pacijent
+# uskratio (nalaz N2). Otud dvokorak: prvo ispiši sva pitanja doslovno, pa tek
+# onda sudi, i to samo o onome čega u tom popisu nema.
+EVALUATOR_SISTEM = """Ti si iskusan mentor u javnoj apoteci u Bosni i Hercegovini i ocjenjuješ
+farmaceutsko savjetovanje u simulaciji. Ocjenjuješ pošteno, po dokazima iz transkripta, i
+nikad ne izmišljaš propuste.
+
+RADIŠ U DVA KORAKA — redoslijed je obavezan.
+
+KORAK 1 — POPIS. Prije bilo kakvog suda pročitaj transkript i doslovno ispiši SVAKO pitanje i
+svaki zahtjev koji je farmaceut uputio pacijentu, redom, u polje "pitanja_farmaceuta". Prepisuješ
+tačno onako kako je napisano, uključujući pravopisne greške. Ako je u jednoj poruci više pitanja,
+svako ide kao zaseban unos.
+
+KORAK 2 — SUD. Tek sada ocjenjuješ, i to isključivo na osnovu tog popisa i transkripta.
+
+PRAVILA KOJA SE NE SMIJU PREKRŠITI:
+
+1. PITANO NIJE ISTO ŠTO I SAZNATO. Ako je farmaceut postavio pitanje, a pacijent uskratio,
+   umanjio ili porekao odgovor, to je ponašanje pacijenta — NE propust farmaceuta. Takav slučaj
+   ide u "pitano_ali_neodgovoreno" i boduje se KAO DA je pitanje postavljeno, jer i jeste.
+   U "nije_pitano" smije ući samo ono čega u popisu iz koraka 1 nema ni u širem smislu.
+   Šire znači: "uzimate li još nešto?" pokriva biljne preparate, suplemente i OTC lijekove;
+   "koliko dugo?" pokriva vremenski slijed; "jeste li bili kod ljekara?" pokriva nalaze.
+   Prije nego išta upišeš u "nije_pitano", provjeri popis još jednom.
+
+2. SVAKA POHVALA I SVAKI UNOS U "pitano_ali_neodgovoreno" MORA NOSITI DOSLOVAN CITAT iz
+   transkripta. Citat prepisuješ znak po znak. Tvrdnja bez citata bit će odbačena prije nego
+   je polaznik vidi, pa je nemoj ni pisati.
+
+3. RAZGOVOR JE OGRANIČEN BROJEM POTEZA. Broj je naveden u zadatku. Ne kažnjavaš farmaceuta zato
+   što nije stigao produbiti ono što je pacijent iznio u posljednjoj ili pretposljednjoj replici —
+   nije imao potez na raspolaganju. Ako je farmaceut ispravno reagovao na kasno otkriven podatak,
+   to je pohvala, ne propust.
+
+4. NE KAŽNJAVAŠ DVAPUT. Isti propust ne ide i u "nije_pitano" i u "smjernice" kao zasebna stavka.
+
+5. KAZNE IZ RUBRIKE primjenjuješ doslovno i navodiš ih u "kazne_primijenjene". Kazna vezana za
+   pitanje koje jeste postavljeno (vidi pravilo 1) se NE primjenjuje.
+
+BODOVANJE. Anamneza, komunikacija i sigurnost svaka 0-10, po kriterijima iz rubrike.
+Ukupna ocjena = anamneza x 0.4 + komunikacija x 0.3 + sigurnost x 0.3, zaokruženo na jednu
+decimalu. Izračunaj pažljivo.
+
+TON. Pišeš polazniku, ne o njemu. Konkretno, bez fraza, bez moralisanja. Smjernice su upute za
+sljedeći put, a ne prepričavanje propusta.
+
+""" + JEZIK_PRAVILO
+
+
+EVALUATOR_SHEMA = """{
+ "pitanja_farmaceuta": ["doslovan citat svakog pitanja/zahtjeva farmaceuta, redom"],
+ "anamneza": <0-10>,
+ "komunikacija": <0-10>,
+ "sigurnost": <0-10>,
+ "ukupna_ocjena": <0.0-10.0>,
+ "nije_pitano": [{"pitanje": "šta je trebalo pitati", "zasto_vazno": "jedna rečenica"}],
+ "pitano_ali_neodgovoreno": [{"pitanje": "šta je farmaceut pitao",
+                              "citat_farmaceuta": "doslovan citat iz transkripta",
+                              "reakcija_pacijenta": "kako je pacijent izbjegao odgovor"}],
+ "kazne_primijenjene": ["naziv kazne iz rubrike koja je primijenjena"],
+ "pohvale": [{"tekst": "šta je uradio dobro", "citat": "doslovan citat iz transkripta"}],
+ "smjernice": ["konkretna uputa za sljedeći put"]
+}"""
+
+
+def pozovi_evaluatora(transkript, sc, broj_poteza=MAX_POTEZA):
     prompt = f"""Ocijeni savjetovanje farmaceuta u apoteci.
+
 Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}
 Crvene zastavice: {sc['crvene_zastavice']}
-Ocekivano savjetovanje: {sc['ocekivano']}
-{sc.get('rubrika', '')}
-Transkript:\n{transkript}
+Očekivano savjetovanje: {sc['ocekivano']}
 
-Vrati ISKLJUCIVO validan JSON bez ikakvog teksta prije ili poslije:
-{{"anamneza":<0-10>,"komunikacija":<0-10>,"sigurnost":<0-10>,"ukupna_ocjena":<0.0-10.0>,"propustena_pitanja":["..."],"pohvale":["..."],"smjernice":["..."]}}"""
+RUBRIKA:
+{sc.get('rubrika', '')}
+
+OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {broj_poteza} poteza (poruka). Vidi pravilo 3.
+
+TRANSKRIPT:
+{transkript}
+
+Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, tačno ovog oblika:
+{EVALUATOR_SHEMA}"""
     r = ai.messages.create(
-        model="claude-sonnet-4-6", max_tokens=1024,
+        model=MODEL_EVALUATOR, max_tokens=3000, temperature=0,
+        system=EVALUATOR_SISTEM,
         messages=[{"role": "user", "content": prompt}],
     )
     db_log_upotrebu("evaluacija", st.session_state.get("odabrani_scenarij", ""),
                     r.usage.input_tokens, r.usage.output_tokens)
     return r.content[0].text
+
+
+def _normalizuj(t):
+    """Za poređenje citata: mala slova, bez dijakritike, bez interpunkcije i viška razmaka."""
+    t = (t or "").lower()
+    for a, b in (("č", "c"), ("ć", "c"), ("ž", "z"), ("š", "s"), ("đ", "d")):
+        t = t.replace(a, b)
+    t = re.sub(r"[^a-z0-9 ]+", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def provjeri_ocjenu(r, transkript):
+    """Odbacuje tvrdnje bez dokaza i preračunava ukupnu ocjenu u Pythonu.
+
+    Model ne smije ni tvrditi ni računati bez provjere: citat koji se ne nalazi
+    u transkriptu je izmišljen dokaz, a ponderisani zbir je aritmetika koju
+    Python radi pouzdanije. Odbačene tvrdnje se čuvaju u 'odbaceno' za admina,
+    ali se polazniku ne prikazuju.
+    """
+    if not isinstance(r, dict):
+        return r
+    tn = _normalizuj(transkript)
+    odbaceno = []
+
+    def ima_dokaz(citat):
+        c = _normalizuj(citat)
+        # Kratak citat je preslab dokaz da bi se na njemu gradila tvrdnja.
+        if len(c) < 12:
+            return False
+        return c in tn
+
+    ocisceno = []
+    for p in r.get("pohvale", []) or []:
+        if isinstance(p, str):          # stari format — nema šta da se provjeri
+            ocisceno.append(p)
+        elif ima_dokaz(p.get("citat", "")):
+            ocisceno.append(p)
+        else:
+            odbaceno.append({"vrsta": "pohvala", "sadrzaj": p})
+    r["pohvale"] = ocisceno
+
+    ocisceno = []
+    for p in r.get("pitano_ali_neodgovoreno", []) or []:
+        if isinstance(p, dict) and ima_dokaz(p.get("citat_farmaceuta", "")):
+            ocisceno.append(p)
+        else:
+            odbaceno.append({"vrsta": "pitano_ali_neodgovoreno", "sadrzaj": p})
+    r["pitano_ali_neodgovoreno"] = ocisceno
+
+    if odbaceno:
+        r["odbaceno"] = odbaceno
+
+    # Ukupna ocjena se računa ovdje, ne u modelu.
+    try:
+        r["ukupna_ocjena"] = round(
+            float(r.get("anamneza", 0)) * 0.4
+            + float(r.get("komunikacija", 0)) * 0.3
+            + float(r.get("sigurnost", 0)) * 0.3, 1)
+    except (TypeError, ValueError):
+        pass
+
+    # Kompatibilnost: stari prikaz, žalbe i CSV izvoz čitaju 'propustena_pitanja'.
+    if "nije_pitano" in r and "propustena_pitanja" not in r:
+        r["propustena_pitanja"] = [
+            n.get("pitanje", "") if isinstance(n, dict) else str(n)
+            for n in (r.get("nije_pitano") or [])
+        ]
+    return r
 
 
 def izvuci_json(tekst):
@@ -1210,10 +1436,11 @@ def pokreni_evaluaciju(stanje, sc, sc_id):
         for p in stanje["poruke_prikaz"]
     )
     with st.spinner("Analizira savjetovanje..."):
-        json_tekst = pozovi_evaluatora(transkript, sc)
+        json_tekst = pozovi_evaluatora(transkript, sc, MAX_POTEZA)
 
     rezultat = izvuci_json(json_tekst)
     if rezultat:
+        rezultat = provjeri_ocjenu(rezultat, transkript)
         stanje["ocjena"] = rezultat
         stanje["zavrseno"] = True
         db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript)
@@ -1226,7 +1453,7 @@ def pokreni_evaluaciju(stanje, sc, sc_id):
 GENERATOR_SISTEM = """Ti si arhitekta kliničkih simulacija za edukaciju farmaceuta — spoj kliničkog \
 farmakologa, iskusnog javnog farmaceuta iz Bosne i Hercegovine i dizajnera OSCE ispita. \
 Iz naučnog case reporta (PDF) gradiš scenarij za simulator u kojem AI glumi pacijenta koji ulazi \
-u javnu apoteku, a farmaceut-polaznik kroz razgovor od najviše 7 poteza mora otkriti skriveni \
+u javnu apoteku, a farmaceut-polaznik kroz razgovor od najviše 10 poteza mora otkriti skriveni \
 problem i sigurno savjetovati.
 
 PRINCIPI DIZAJNA — svi su OBAVEZNI:
@@ -1261,7 +1488,7 @@ akcija (prekid, odbijanje izdavanja, hitno upućivanje — kome i zašto).
 grešku (npr. izdati traženi lijek, preporučiti simptomatsku terapiju koja maskira problem) koja se \
 u rubrici kažnjava sa 0/10 za Sigurnost.
 
-7. RUBRIKA — strogo zadrži ovaj format (bez dijakritike unutar rubrike, kao u primjeru):
+7. RUBRIKA — strogo zadrži ovaj format, s punom dijakritikom:
 Ocijeni po ovim kategorijama (svaka 0-10):
 
 ANAMNEZA (tezina 0.4): <5 konkretnih kriterija vezanih za OVAJ slucaj, svaki (2)>
@@ -1286,7 +1513,9 @@ IZLAZ: Vrati ISKLJUČIVO validan JSON (bez markdown ograda, bez teksta prije/pos
  "ocekivano": "<očekivani koraci savjetovanja, odvojeni tačka-zarezom>",
  "pocetna_poruka": "<prva replika pacijenta>",
  "rubrika": "<rubrika u formatu iz tačke 7>",
- "obrazlozenje": "<za admina: sažetak case reporta (dijagnoza, ishod), šta je pedagoški cilj, gdje je lažni trag i zašto je slučaj težak — 4-6 rečenica>"}"""
+ "obrazlozenje": "<za admina: sažetak case reporta (dijagnoza, ishod), šta je pedagoški cilj, gdje je lažni trag i zašto je slučaj težak — 4-6 rečenica>"}
+
+""" + JEZIK_PRAVILO
 
 
 def generisi_scenarij_iz_pdfa(pdf_bytes, tezina, smjernice):
@@ -1300,7 +1529,7 @@ def generisi_scenarij_iz_pdfa(pdf_bytes, tezina, smjernice):
         + "Analiziraj priloženi case report i kreiraj scenarij prema uputama."
     )
     r = ai.messages.create(
-        model="claude-sonnet-4-6", max_tokens=8000,
+        model=MODEL_GENERATOR, max_tokens=8000,
         system=GENERATOR_SISTEM,
         messages=[{
             "role": "user",
@@ -1360,12 +1589,36 @@ def prikazi_ocjenu(r):
     if r.get("pohvale"):
         st.markdown("#### Šta ste uradili dobro")
         for p in r["pohvale"]:
-            st.success(p)
+            if isinstance(p, dict):
+                st.success(p.get("tekst", ""))
+                if p.get("citat"):
+                    st.caption(f"iz razgovora: „{p['citat']}“")
+            else:
+                st.success(p)
 
-    if r.get("propustena_pitanja"):
-        st.markdown("#### Propuštena pitanja")
-        for p in r["propustena_pitanja"]:
-            st.warning(p)
+    # Pitanja koja jesu postavljena, a pacijent ih je izbjegao. Ovo se NE
+    # kažnjava — prikazuje se da polaznik vidi gdje ga je pacijent odveo.
+    if r.get("pitano_ali_neodgovoreno"):
+        st.markdown("#### Pitali ste, ali niste dobili odgovor")
+        st.caption("Ovo nije propust — pacijent je uskratio odgovor. Vrijedi vidjeti kako je to izveo.")
+        for p in r["pitano_ali_neodgovoreno"]:
+            if not isinstance(p, dict):
+                continue
+            st.info(
+                f"**{p.get('pitanje','')}**\n\n"
+                f"Vi: „{p.get('citat_farmaceuta','')}“\n\n"
+                f"Pacijent: {p.get('reakcija_pacijenta','')}"
+            )
+
+    nije = r.get("nije_pitano") or r.get("propustena_pitanja")
+    if nije:
+        st.markdown("#### Niste pitali")
+        for p in nije:
+            if isinstance(p, dict):
+                zasto = p.get("zasto_vazno", "")
+                st.warning(f"**{p.get('pitanje','')}**" + (f"\n\n{zasto}" if zasto else ""))
+            else:
+                st.warning(p)
 
     if r.get("smjernice"):
         st.markdown("#### Smjernice za poboljšanje")
@@ -2450,7 +2703,7 @@ def prikazi_login():
                 ok, poruka = db_registruj(email_r, loz1, ime, institucija)
                 if ok:
                     st.success("Zahtjev primljen! Bit ćete obaviješteni kada admin odobri pristup.")
-                    st.info("Kontakt za ubrzanje odobravanja: semir.mehovic1989@gmail.com")
+                    st.info(f"Pristup odobrava administrator ručno, samo članovima Edu Pharma Community. Kontakt: {KONTAKT_EMAIL}")
                 else:
                     st.error(poruka)
 
@@ -2741,8 +2994,8 @@ setInterval(function() {
     st.markdown("""
     <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px 14px;
          margin-bottom:10px;font-size:13px;color:#0c4a6e;line-height:1.5">
-        <strong>Savjet:</strong> U jednoj poruci možete postaviti više pitanja odjednom
-        (npr. kako se osjećate, koliko dugo traje, šta koristite). Iskoristite svaki pokušaj maksimalno.
+        <strong>Savjet:</strong> Pitajte kao za pultom — jedno do dva pitanja, pa slušajte.
+        Na tri i više pitanja odjednom pacijent odgovara samo na prva dva, kao i u stvarnosti.
     </div>
     """, unsafe_allow_html=True)
 

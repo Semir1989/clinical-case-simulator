@@ -10,6 +10,8 @@ kalibracija/referenca.json
 # Planski dokumenti — radni materijal, ne ide u javni repo
 PLAN-*.html
 PLAN-*.pdf
+NASTAVAK.html
+NASTAVAK.pdf
 
 # Case reportovi (autorski radovi) i generisani scenariji — otkrivaju rjesenja
 scenario/

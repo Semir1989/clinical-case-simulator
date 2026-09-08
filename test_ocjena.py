@@ -15,10 +15,12 @@ _od = _KOD.index("def _normalizuj(")
 _do = _KOD.index("# ─── AI Generator scenarija")
 exec(compile(_KOD[_od:_do], "app.py", "exec"))
 
-TRANSKRIPT = """Pacijent: Dobro jutro. Imate li nešto za bolove u mišićima?
-Farmaceut: Dobro jutro gospodine. Da li vam se ti bolovi javljaju inače nakon bicikliranja i da li uzimate još nešto od lijekova ili biljnih dodataka prehrani?
-Pacijent: Pa uzimam tablete za pritisak i za srce, al' to uzimam već godinama.
-Farmaceut: Izvinite, ali ne djeluje mi da vas može baš sve boliti od bicikliranja. Da li uzimate još nešto uz lijekove za pritisak i srce?
+# Izmišljen razgovor, namjerno nije nijedan stvarni scenarij — repo je javan,
+# pa test ne smije odati rješenje slučaja koji polaznici tek trebaju odigrati.
+TRANSKRIPT = """Pacijent: Dobar dan. Trebam nešto za bolove u leđima, ukočio sam se.
+Farmaceut: Dobar dan. Koliko dugo vas boli i da li uzimate još nešto od lijekova ili biljnih dodataka prehrani?
+Pacijent: Boli me od jučer. Uzimam nešto za pritisak, to pijem godinama.
+Farmaceut: Razumijem. Da li uzimate još nešto uz te tablete za pritisak?
 Pacijent: Pa ne, šta bih drugo uzimao... samo te moje tablete."""
 
 pao = []
@@ -35,7 +37,7 @@ print("\nprovjeri_ocjenu — dokazi")
 r = provjeri_ocjenu({
     "anamneza": 5, "komunikacija": 5, "sigurnost": 5, "ukupna_ocjena": 9.9,
     "pohvale": [
-        {"tekst": "Posumnjao je na drugi uzrok", "citat": "ne djeluje mi da vas može baš sve boliti od bicikliranja"},
+        {"tekst": "Pitao je o trajanju tegobe", "citat": "Koliko dugo vas boli i da li uzimate još nešto"},
         {"tekst": "Bio je izuzetno empatičan", "citat": "razumijem koliko vam je teško, gospodine"},
     ],
     "pitano_ali_neodgovoreno": [
@@ -48,7 +50,7 @@ r = provjeri_ocjenu({
 
 provjeri("pohvala s pravim citatom ostaje", len(r["pohvale"]) == 1)
 provjeri("pohvala s izmišljenim citatom je odbačena",
-         r["pohvale"][0]["tekst"] == "Posumnjao je na drugi uzrok")
+         r["pohvale"][0]["tekst"] == "Pitao je o trajanju tegobe")
 provjeri("stvarno postavljeno pitanje ostaje", len(r["pitano_ali_neodgovoreno"]) == 1)
 provjeri("izmišljeno pitanje je odbačeno",
          r["pitano_ali_neodgovoreno"][0]["pitanje"] == "Biljni dodaci")

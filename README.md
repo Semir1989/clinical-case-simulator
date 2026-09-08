@@ -30,6 +30,7 @@ Do septembra 2026. sve je živjelo u jednom fajlu od 3.281 linije. Sada:
 | `stil.py` + `stil.css` | Izgled |
 | `ui/` | Ekrani: prijava, ljestvica, moji rezultati, admin panel |
 | `kalibracija/` | Mjerenje odstupanja ocjenjivača od referentnih ocjena |
+| `skripte/` | Konverzija scenarija i testni skup ponašanja pacijenta |
 | `arhiva/` | Stari fajlovi iz ranih verzija, ne koriste se |
 
 Redoslijed uvoza je jednosmjeran i nema kružnih zavisnosti:
@@ -78,6 +79,17 @@ venv/Scripts/python kalibracija/izvuci_referencu.py    # jednom, vadi transkript
 venv/Scripts/python kalibracija/izmjeri.py             # poslije svake izmjene
 ```
 
+Poslije izmjene priručnika pacijenta pokrenuti testni skup ponašanja — takođe
+**troši API**, oko 0,005 USD po testu:
+
+```bash
+venv/Scripts/python skripte/test_ponasanja.py         # svih osam
+venv/Scripts/python skripte/test_ponasanja.py 1 4     # samo odabrani
+```
+
+Model nije determinističan, pa te testove ocjenjuje čovjek; automatska provjera
+postoji samo tamo gdje se očekuje konkretna riječ.
+
 ## Shema baze
 
 ```sql
@@ -123,7 +135,9 @@ create table scenarios (
   godine           integer,
   tegoba           text,
   terapija         text,
-  skriveni_detalji text,
+  skriveni_detalji text,        -- stari oblik; koristi se samo ako je cinjenice NULL
+  cinjenice        jsonb,       -- [{id, cinjenica, okidac, osjetljivo}] — jedini izvor istine
+  persona          jsonb default '{}',   -- kako pacijent govori, ne sta zna
   crvene_zastavice text,
   ocekivano        text,
   pocetna_poruka   text,
@@ -169,5 +183,11 @@ koji nikad ne stiže u browser.
   važi za odbacivanje tvrdnji čiji citat nije u transkriptu.
 - **Demo nema nijedan API poziv.** Ako mu se ikad doda model, gubi smisao —
   postoji upravo zato da se može ostaviti otvoren svima bez troška.
+- **Činjenice imaju okidače.** Pacijent činjenicu daje čim farmaceut postavi pitanje koje
+  pogađa njen okidač. Osjetljive daje na drugo pitanje ili nakon empatije — nikad ih ne
+  krije zauvijek. Scenarij bez liste činjenica pada na stari tekst `skriveni_detalji`; taj
+  povratak ne uklanjati dok svi scenariji nisu konvertovani.
+- **Persona mijenja samo KAKO pacijent govori**, nikad ŠTA zna. Ako se u personu ubaci
+  klinički podatak, prestaje biti provjerljivo šta je pacijent smio otkriti.
 - **Sentry `ThreadingIntegration` mora ostati isključena** — lomi Streamlit
   threadove.

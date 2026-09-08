@@ -579,6 +579,8 @@ def _ucitaj_db_scenarije():
                 "ocekivano": red.get("ocekivano") or "",
                 "pocetna_poruka": red.get("pocetna_poruka") or "",
                 "rubrika": red.get("rubrika") or "",
+                "persona": red.get("persona") or {},
+                "cinjenice": red.get("cinjenice") or None,
                 "aktivan": bool(red.get("active", False)),
                 "_iz_baze": True,
             }

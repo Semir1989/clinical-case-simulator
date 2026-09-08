@@ -12,14 +12,56 @@ from scenariji import SCENARIJI
 from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM, GENERATOR_SISTEM,
                        PACIJENT_PRIRUCNIK)
 
+PERSONA_OPISI = {
+    "pricljivost": "Pričljivost: {v} od 5",
+    "obrazovanje": "Obrazovanje: {v}",
+    "raspolozenje": "Raspoloženje: {v}",
+    "zanimanje": "Zanimanje: {v}",
+    "porodica": "Porodica i okolnosti: {v}",
+    "odnos_prema_lijekovima": "Odnos prema lijekovima: {v}",
+}
+
+
+def opisi_personu(persona):
+    if not persona:
+        return ""
+    redovi = [PERSONA_OPISI[k].format(v=persona[k])
+              for k in PERSONA_OPISI if persona.get(k) not in (None, "")]
+    if persona.get("zurba"):
+        redovi.append("Žuri ti se — više puta to spomeneš.")
+    return "\nTVOJA PERSONA (mijenja kako govoriš, ne šta znaš):\n- " + "\n- ".join(redovi) if redovi else ""
+
+
+def opisi_cinjenice(sc):
+    """Lista činjenica s okidačima; ako je nema, vraća stari tekstualni opis.
+
+    Fallback postoji dok se svi scenariji ne konvertuju — scenarij bez liste
+    mora i dalje raditi, samo bez okidača.
+    """
+    cinjenice = sc.get("cinjenice")
+    if not cinjenice:
+        return ("\nTVOJE SKRIVENE ČINJENICE — daješ ih po pravilu „KADA OTKRIVAŠ, A KADA ŠUTIŠ“, "
+                f"a ništa izvan ovoga ne postoji:\n{sc.get('skriveni_detalji', '')}")
+
+    redovi = []
+    for c in cinjenice:
+        oznaka = " [OSJETLJIVO — prešućuješ iz stida ili straha]" if c.get("osjetljivo") else ""
+        redovi.append(
+            f"- {c.get('cinjenica', '')}\n"
+            f"  otključava je: {c.get('okidac', 'bilo koje direktno pitanje o ovome')}{oznaka}"
+        )
+    return ("\nTVOJE ČINJENICE. Ovo je sve što o sebi znaš — ništa izvan ove liste ne postoji.\n"
+            "Uz svaku piše koje je pitanje otključava.\n" + "\n".join(redovi))
+
+
 def napravi_system_prompt(sc):
     staticki = PACIJENT_PRIRUCNIK + "\n\n" + JEZIK_PRAVILO
     dinamicki = (
         f"\nGlumaš: {sc['ime']}, {sc['godine']} god.\n"
         f"Tegoba: {sc['tegoba']}\n"
         f"Terapija koju odmah priznaješ: {sc['terapija']}\n"
-        f"Tvoje skrivene činjenice — daješ ih po pravilu „KADA OTKRIVAŠ, A KADA ŠUTIŠ“, "
-        f"a ništa izvan ove liste ne postoji:\n{sc['skriveni_detalji']}"
+        + opisi_personu(sc.get("persona"))
+        + "\n" + opisi_cinjenice(sc)
     )
     return [
         {"type": "text", "text": staticki, "cache_control": {"type": "ephemeral"}},

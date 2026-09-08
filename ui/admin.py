@@ -520,6 +520,7 @@ def prikazi_admin():
                         "terapija": s.get("terapija", ""), "skriveni_detalji": s.get("skriveni_detalji", ""),
                         "crvene_zastavice": s.get("crvene_zastavice", ""), "ocekivano": s.get("ocekivano", ""),
                         "pocetna_poruka": s.get("pocetna_poruka", ""), "rubrika": s.get("rubrika", ""),
+                        "persona": s.get("persona") or {}, "cinjenice": s.get("cinjenice"),
                         "active": True,
                     })
                     if ok:
@@ -542,8 +543,38 @@ def prikazi_admin():
             godine_in = c2.number_input("Godine", 0, 120, int(izvor.get("godine") or 30))
             tegoba_in = st.text_area("Tegoba / razlog posjete", value=izvor.get("tegoba", ""), height=70)
             terapija_in = st.text_area("Postojeća terapija", value=izvor.get("terapija", ""), height=70)
-            skriveni_in = st.text_area("Skriveni detalji (otkriva samo na direktno pitanje)",
-                                       value=izvor.get("skriveni_detalji", ""), height=140)
+            skriveni_in = st.text_area(
+                "Skriveni detalji — stari tekstualni oblik",
+                value=izvor.get("skriveni_detalji", ""), height=120,
+                help="Koristi se samo ako lista činjenica ispod nije popunjena.")
+
+            st.markdown("**Persona** — mijenja kako pacijent govori, ne šta zna.")
+            _per = izvor.get("persona") or {}
+            p1, p2, p3 = st.columns(3)
+            pricljivost_in = p1.selectbox(
+                "Pričljivost", [1, 2, 3, 4, 5],
+                index=[1, 2, 3, 4, 5].index(int(_per.get("pricljivost") or 3)))
+            _obr = ["osnovno", "srednje", "visoko"]
+            obrazovanje_in = p2.selectbox(
+                "Obrazovanje", _obr,
+                index=_obr.index(_per.get("obrazovanje")) if _per.get("obrazovanje") in _obr else 1)
+            _rasp = ["uplasen", "nervozan", "umoran", "vedar", "ljut", "neutralan"]
+            raspolozenje_in = p3.selectbox(
+                "Raspoloženje", _rasp,
+                index=_rasp.index(_per.get("raspolozenje")) if _per.get("raspolozenje") in _rasp else 5)
+            p4, p5 = st.columns(2)
+            zanimanje_in = p4.text_input("Zanimanje", value=_per.get("zanimanje", ""))
+            porodica_in = p5.text_input("Porodica i okolnosti", value=_per.get("porodica", ""))
+            odnos_in = st.text_input("Odnos prema lijekovima", value=_per.get("odnos_prema_lijekovima", ""),
+                                     placeholder="npr. vjeruje komšinici više nego ljekaru")
+            zurba_in = st.checkbox("Žuri mu se", value=bool(_per.get("zurba")))
+
+            cinjenice_in = st.text_area(
+                "Činjenice (JSON lista)", height=220,
+                value=json.dumps(izvor.get("cinjenice") or [], ensure_ascii=False, indent=2),
+                help='Svaka: {"id", "cinjenica", "okidac", "osjetljivo"}. Okidač je pitanje '
+                     'koje činjenicu otključava. Osjetljive pacijent daje tek na drugo pitanje '
+                     'ili nakon empatije. Prazna lista = koristi se stari tekst iznad.')
             zastavice_in = st.text_area("Crvene zastavice", value=izvor.get("crvene_zastavice", ""), height=100)
             ocekivano_in = st.text_area("Očekivano savjetovanje", value=izvor.get("ocekivano", ""), height=100)
             pocetna_in = st.text_input("Početna poruka pacijenta", value=izvor.get("pocetna_poruka", ""))
@@ -557,10 +588,37 @@ def prikazi_admin():
             st.session_state.pop("uredi_scenarij", None)
             st.rerun()
         if spremi:
-            if not sid_in.strip() or not naziv_in.strip() or not pocetna_in.strip() or not skriveni_in.strip():
-                st.error("Obavezno: ID, naziv, početna poruka i skriveni detalji.")
+            cinjenice_val, greska_json = None, ""
+            try:
+                cinjenice_val = json.loads(cinjenice_in) if cinjenice_in.strip() else []
+                if not isinstance(cinjenice_val, list):
+                    greska_json = "Činjenice moraju biti JSON lista."
+                else:
+                    for c in cinjenice_val:
+                        if not isinstance(c, dict) or not c.get("cinjenica") or not c.get("okidac"):
+                            greska_json = "Svaka činjenica treba polja 'cinjenica' i 'okidac'."
+                            break
+            except json.JSONDecodeError as e:
+                greska_json = f"Činjenice nisu validan JSON: {e}"
+
+            if greska_json:
+                st.error(greska_json)
+            elif not sid_in.strip() or not naziv_in.strip() or not pocetna_in.strip():
+                st.error("Obavezno: ID, naziv i početna poruka.")
+            elif not cinjenice_val and not skriveni_in.strip():
+                st.error("Popunite ili listu činjenica ili stare skrivene detalje.")
             else:
                 ok = db_scenarij_spremi(sid_in, {
+                    "persona": {
+                        "pricljivost": int(pricljivost_in),
+                        "obrazovanje": obrazovanje_in,
+                        "raspolozenje": raspolozenje_in,
+                        "zurba": bool(zurba_in),
+                        "zanimanje": zanimanje_in.strip(),
+                        "porodica": porodica_in.strip(),
+                        "odnos_prema_lijekovima": odnos_in.strip(),
+                    },
+                    "cinjenice": cinjenice_val or None,
                     "naziv": naziv_in.strip(), "ime": ime_in.strip(), "godine": int(godine_in),
                     "tegoba": tegoba_in.strip(), "terapija": terapija_in.strip(),
                     "skriveni_detalji": skriveni_in.strip(), "crvene_zastavice": zastavice_in.strip(),
@@ -626,8 +684,16 @@ def prikazi_admin():
                                         value=gen.get("tegoba", ""), height=70)
                 terapija_g = st.text_area("Postojeća terapija",
                                           value=gen.get("terapija", ""), height=70)
-                skriveni_g = st.text_area("Skriveni detalji",
-                                          value=gen.get("skriveni_detalji", ""), height=180)
+                skriveni_g = st.text_area("Skriveni detalji — stari tekstualni oblik",
+                                          value=gen.get("skriveni_detalji", ""), height=120)
+                cinjenice_g = st.text_area(
+                    "Činjenice (JSON lista)", height=260,
+                    value=json.dumps(gen.get("cinjenice") or [], ensure_ascii=False, indent=2),
+                    help="Provjerite okidače i oznake osjetljivosti prije spremanja — od njih "
+                         "zavisi da li se slučaj uopšte može riješiti.")
+                persona_g = st.text_area(
+                    "Persona (JSON)", height=140,
+                    value=json.dumps(gen.get("persona") or {}, ensure_ascii=False, indent=2))
                 zastavice_g = st.text_area("Crvene zastavice",
                                            value=gen.get("crvene_zastavice", ""), height=130)
                 ocekivano_g = st.text_area("Očekivano savjetovanje",
@@ -646,9 +712,21 @@ def prikazi_admin():
                 st.session_state.pop("ai_gen_scenarij", None)
                 st.rerun()
             if spremi_g:
-                if not sid_g.strip() or not naziv_g.strip() or not pocetna_g.strip() \
-                        or not skriveni_g.strip():
-                    st.error("Obavezno: ID, naziv, početna poruka i skriveni detalji.")
+                cinjenice_gv, persona_gv, greska_g = None, {}, ""
+                try:
+                    cinjenice_gv = json.loads(cinjenice_g) if cinjenice_g.strip() else []
+                    persona_gv = json.loads(persona_g) if persona_g.strip() else {}
+                    if not isinstance(cinjenice_gv, list) or not isinstance(persona_gv, dict):
+                        greska_g = "Činjenice moraju biti lista, a persona objekat."
+                except json.JSONDecodeError as e:
+                    greska_g = f"JSON nije validan: {e}"
+
+                if greska_g:
+                    st.error(greska_g)
+                elif not sid_g.strip() or not naziv_g.strip() or not pocetna_g.strip() \
+                        or not (cinjenice_gv or skriveni_g.strip()):
+                    st.error("Obavezno: ID, naziv, početna poruka i činjenice "
+                             "(ili stari skriveni detalji).")
                 elif sid_g.strip() in SCENARIJI and not st.session_state.get("ai_gen_prepisi"):
                     st.session_state["ai_gen_prepisi"] = True
                     st.warning(f"ID '{sid_g.strip()}' već postoji — klik na 'Spremi scenarij' "
@@ -659,6 +737,8 @@ def prikazi_admin():
                         "godine": int(godine_g), "tegoba": tegoba_g.strip(),
                         "terapija": terapija_g.strip(),
                         "skriveni_detalji": skriveni_g.strip(),
+                        "cinjenice": cinjenice_gv or None,
+                        "persona": persona_gv,
                         "crvene_zastavice": zastavice_g.strip(),
                         "ocekivano": ocekivano_g.strip(),
                         "pocetna_poruka": pocetna_g.strip(),

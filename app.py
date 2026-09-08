@@ -22,6 +22,8 @@ import streamlit.components.v1 as components
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
+from demo import prikazi_demo
+
 ADMIN_EMAIL = "info@farmaceutupraksi.ba"
 KONTAKT_EMAIL = "info@farmaceutupraksi.ba"
 
@@ -477,7 +479,52 @@ def hash_loz(lozinka: str) -> str:
     return hashlib.sha256(lozinka.encode()).hexdigest()
 
 
-def db_registruj(email, lozinka, ime, institucija):
+def nadimak_za(korisnik, email=""):
+    """Javno ime na ljestvici. Pravo ime i institucija se tamo nikad ne prikazuju.
+
+    Zatečeni korisnici nemaju nadimak — dok ga ne postave dobijaju stabilnu
+    neutralnu oznaku izvedenu iz emaila, koja ne otkriva ko su.
+    """
+    n = (korisnik or {}).get("nadimak") or ""
+    if n.strip():
+        return n.strip()
+    em = (korisnik or {}).get("email") or email or ""
+    return "Farmaceut-" + hashlib.sha256(em.encode()).hexdigest()[:4].upper()
+
+
+def nadimak_slobodan(nadimak, email):
+    if not db:
+        return True
+    try:
+        r = db.table("users").select("email, nadimak").execute()
+        n = nadimak.strip().lower()
+        return not any((u.get("nadimak") or "").strip().lower() == n
+                       and u["email"] != email for u in (r.data or []))
+    except Exception:
+        return True
+
+
+def db_postavi_nadimak(email, nadimak):
+    if not db:
+        return False, "Baza podataka nije dostupna."
+    n = (nadimak or "").strip()
+    if len(n) < 3:
+        return False, "Nadimak mora imati najmanje 3 znaka."
+    if len(n) > 24:
+        return False, "Nadimak može imati najviše 24 znaka."
+    if "@" in n:
+        return False, "Nadimak ne smije sadržavati email adresu."
+    if not nadimak_slobodan(n, email):
+        return False, "Taj nadimak je već zauzet. Izaberite drugi."
+    try:
+        db.table("users").update({"nadimak": n}).eq("email", email).execute()
+        return True, "ok"
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return False, f"Greška: {e}"
+
+
+def db_registruj(email, lozinka, ime, institucija, nadimak=""):
     if not db:
         return False, "Baza podataka nije dostupna."
     try:
@@ -489,7 +536,8 @@ def db_registruj(email, lozinka, ime, institucija):
             "password_hash": hash_loz(lozinka),
             "full_name": ime.strip(),
             "institution": institucija.strip(),
-            "approved": False,
+            "nadimak": (nadimak or "").strip() or None,
+            "approved": False,   # pristup odobrava iskljucivo admin, rucno
         }).execute()
         return True, "ok"
     except Exception as e:
@@ -602,7 +650,7 @@ def db_leaderboard(period):
                 skupovi[row["user_email"]]["sigurnost"].append(float(row["sigurnost"]))
 
         emailovi = list(skupovi.keys())
-        im = db.table("users").select("email, full_name, institution").in_("email", emailovi).execute()
+        im = db.table("users").select("email, nadimak").in_("email", emailovi).execute()
         info = {u["email"]: u for u in im.data}
 
         lista = []
@@ -614,8 +662,9 @@ def db_leaderboard(period):
             avg_s = round(sum(data["sigurnost"]) / len(data["sigurnost"]), 1) if data["sigurnost"] else 0
             lista.append({
                 "email": em,
-                "ime": k.get("full_name", em),
-                "institucija": k.get("institution", ""),
+                # Ljestvica je javna unutar zajednice — ide samo nadimak.
+                "ime": nadimak_za(k, em),
+                "institucija": "",
                 "ukupno": round(sum(scores), 2),
                 "slucajeva": len(scores),
                 "prosjek": round(sum(scores) / len(scores), 2),
@@ -1644,7 +1693,7 @@ def _leaderboard_red(i, red, ja, medalje, vrijednost, label_vr):
                 <div style="font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                     {red['ime']}{' (vi)' if je_ja else ''}
                 </div>
-                <div style="font-size:13px;color:#64748b">{red['institucija']} · {red['slucajeva']} slučaj/eva</div>
+                <div style="font-size:13px;color:#64748b">{red['slucajeva']} slučaj/eva</div>
             </div>
             <div style="text-align:right;flex-shrink:0">
                 <div style="font-size:26px;font-weight:800;color:#1E3A8A">{vrijednost}</div>
@@ -1758,9 +1807,40 @@ def prikazi_leaderboard():
                           "#fce7f3", "#9d174d", ja, medalje)
 
 
+def prikazi_nadimak_postavku():
+    """Nadimak je jedino što drugi vide na ljestvici — zato se mijenja ovdje."""
+    email = st.session_state.get("korisnik_email", "")
+    korisnik = st.session_state.get("korisnik", {}) or {}
+    trenutni = (korisnik.get("nadimak") or "").strip()
+
+    with st.expander("Nadimak na ljestvici" + ("" if trenutni else " — još nije postavljen"),
+                     expanded=not trenutni):
+        st.caption(
+            "Na ljestvici se prikazuje isključivo nadimak. Ime, prezime i apoteka "
+            "se ne prikazuju nikome. Ako želite da vas kolege prepoznaju, slobodno "
+            "upišite svoje ime kao nadimak — to je vaš izbor."
+        )
+        if not trenutni:
+            st.info(f"Trenutno ste na ljestvici prikazani kao **{nadimak_za(korisnik, email)}**.")
+
+        with st.form("nadimak_form"):
+            novi = st.text_input("Nadimak", value=trenutni, max_chars=24,
+                                 placeholder="3 do 24 znaka")
+            if st.form_submit_button("Sačuvaj nadimak", type="primary"):
+                ok, poruka = db_postavi_nadimak(email, novi)
+                if ok:
+                    korisnik["nadimak"] = novi.strip()
+                    st.session_state["korisnik"] = korisnik
+                    st.success("Nadimak je sačuvan.")
+                    st.rerun()
+                else:
+                    st.error(poruka)
+
+
 def prikazi_moje_rezultate():
     st.markdown("## Moji rezultati")
     email = st.session_state.get("korisnik_email", "")
+    prikazi_nadimak_postavku()
     rezultati = db_moji_rezultati(email)
 
     if not rezultati:
@@ -2643,6 +2723,22 @@ def prikazi_login():
         </div>
         """, unsafe_allow_html=True)
 
+        # ── Demo slučaj (bez registracije, bez API troška) ──
+        st.markdown("""
+        <div style='background:linear-gradient(135deg,#0D8A9E,#1E3A8A);border-radius:16px;
+             padding:20px 24px;margin-bottom:12px;color:white'>
+            <div style='font-size:12px;letter-spacing:1.2px;text-transform:uppercase;opacity:.85'>Bez registracije</div>
+            <div style='font-size:19px;font-weight:700;margin-top:4px'>Isprobajte jedan slučaj</div>
+            <div style='font-size:14px;opacity:.9;margin-top:6px'>
+                Pravi klinički slučaj iz apoteke, pet odluka za pultom. Traje dvije minute.</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Otvori demo slučaj", use_container_width=True, key="otvori_demo"):
+            st.session_state["prikazi_demo"] = True
+            st.rerun()
+
+        st.markdown("<div style='height:20px'></div>", unsafe_allow_html=True)
+
         # ── Prijava sekcija ──
         st.markdown("""
         <div style='background:white;border-radius:16px;padding:24px;margin-bottom:20px;
@@ -2688,6 +2784,10 @@ def prikazi_login():
             ime = st.text_input("Ime i prezime", placeholder="Upišite vaše ime i prezime")
             email_r = st.text_input("Email adresa", placeholder="Upišite vaš email", key="er")
             institucija = st.text_input("Apoteka / Institucija", placeholder="Upišite naziv apoteke ili institucije")
+            nadimak_r = st.text_input(
+                "Nadimak za ljestvicu",
+                placeholder="Npr. Farmaceut71 — može i vaše ime ako želite",
+                help="Ovo je jedino što drugi vide na ljestvici. Ime, prezime i apoteka se nikad ne prikazuju.")
             loz1 = st.text_input("Lozinka", type="password", placeholder="Upišite lozinku (min. 6 znakova)", key="l1", autocomplete="new-password")
             loz2 = st.text_input("Ponovite lozinku", type="password", placeholder="Ponovite lozinku", key="l2", autocomplete="new-password")
             submit_r = st.form_submit_button("Pošalji zahtjev za registraciju", use_container_width=True)
@@ -2695,12 +2795,16 @@ def prikazi_login():
         if submit_r:
             if not all([ime, email_r, loz1, loz2]):
                 st.error("Popunite sva polja.")
+            elif nadimak_r.strip() and not (3 <= len(nadimak_r.strip()) <= 24):
+                st.error("Nadimak mora imati između 3 i 24 znaka.")
+            elif nadimak_r.strip() and not nadimak_slobodan(nadimak_r, email_r):
+                st.error("Taj nadimak je već zauzet. Izaberite drugi.")
             elif loz1 != loz2:
                 st.error("Lozinke se ne podudaraju.")
             elif len(loz1) < 6:
                 st.error("Lozinka mora imati min. 6 znakova.")
             else:
-                ok, poruka = db_registruj(email_r, loz1, ime, institucija)
+                ok, poruka = db_registruj(email_r, loz1, ime, institucija, nadimak_r)
                 if ok:
                     st.success("Zahtjev primljen! Bit ćete obaviješteni kada admin odobri pristup.")
                     st.info(f"Pristup odobrava administrator ručno, samo članovima Edu Pharma Community. Kontakt: {KONTAKT_EMAIL}")
@@ -2726,6 +2830,14 @@ def prikazi_login():
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 if not st.session_state.get("ulogovan"):
+    # Demo je otvoren svima i ne troši API — pravi simulator ostaje iza odobrenja admina.
+    if st.session_state.get("prikazi_demo"):
+        c1, c2, c3 = st.columns([1, 10, 1])
+        with c2:
+            if prikazi_demo():
+                st.session_state["prikazi_demo"] = False
+                st.rerun()
+        st.stop()
     prikazi_login()
     st.stop()
 

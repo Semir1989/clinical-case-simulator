@@ -17,6 +17,7 @@ import urllib.error
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
+import bcrypt
 import streamlit as st
 import streamlit.components.v1 as components
 from anthropic import Anthropic
@@ -475,8 +476,33 @@ historija (ne "povijest"), takođe, općenito, hemija, sedmično, mjesec.
 Nikad ekavicu i nikad hrvatske oblike."""
 
 # ─── DB funkcije ──────────────────────────────────────────────────────────────
+# ─── Lozinke ─────────────────────────────────────────────────────────────────
+# Do septembra 2026. lozinke su čuvane kao goli SHA-256 bez soli — takav hash se
+# razbija gotovim tablicama ako baza ikad procuri. Prelazi se na bcrypt, ali bez
+# prekida za korisnike: stari hash se i dalje prihvata pri prijavi i tada se
+# odmah tiho prepisuje bcrypt hashom (vidi migriraj_hash u db_login).
+BROJ_PROMASAJA_ZA_ZAKLJUCAVANJE = 5
+ZAKLJUCAVANJE_MINUTA = 15
+
+
 def hash_loz(lozinka: str) -> str:
+    """Legacy SHA-256. Ostaje samo da se stare lozinke mogu provjeriti."""
     return hashlib.sha256(lozinka.encode()).hexdigest()
+
+
+def hash_loz_bcrypt(lozinka: str) -> str:
+    return bcrypt.hashpw(lozinka.encode(), bcrypt.gensalt()).decode()
+
+
+def provjeri_lozinku(lozinka: str, sacuvani_hash: str):
+    """Vraća (tačna_lozinka, treba_migraciju)."""
+    h = sacuvani_hash or ""
+    if h.startswith("$2"):                      # bcrypt
+        try:
+            return bcrypt.checkpw(lozinka.encode(), h.encode()), False
+        except ValueError:
+            return False, False
+    return secrets.compare_digest(h, hash_loz(lozinka)), True
 
 
 def nadimak_za(korisnik, email=""):
@@ -490,6 +516,36 @@ def nadimak_za(korisnik, email=""):
         return n.strip()
     em = (korisnik or {}).get("email") or email or ""
     return "Farmaceut-" + hashlib.sha256(em.encode()).hexdigest()[:4].upper()
+
+
+def je_admin(korisnik=None):
+    """Uloga iz baze, uz email kao sigurnosnu mrežu.
+
+    ADMIN_EMAIL ostaje kao fallback da pogrešan upis u koloni 'role' nikad ne
+    zaključa Semira izvan admin panela.
+    """
+    k = korisnik if korisnik is not None else (st.session_state.get("korisnik") or {})
+    return (k.get("role") == "admin") or (k.get("email", "") == ADMIN_EMAIL)
+
+
+def je_mentor(korisnik=None):
+    k = korisnik if korisnik is not None else (st.session_state.get("korisnik") or {})
+    return k.get("role") in ("mentor", "admin") or je_admin(k)
+
+
+def db_postavi_ulogu(email, uloga):
+    if not db:
+        return False, "Baza podataka nije dostupna."
+    if uloga not in ("korisnik", "mentor", "admin"):
+        return False, "Nepoznata uloga."
+    if email == ADMIN_EMAIL and uloga != "admin":
+        return False, "Glavnom administratoru se uloga ne može oduzeti."
+    try:
+        db.table("users").update({"role": uloga}).eq("email", email).execute()
+        return True, "ok"
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return False, f"Greška: {e}"
 
 
 def nadimak_slobodan(nadimak, email):
@@ -533,7 +589,7 @@ def db_registruj(email, lozinka, ime, institucija, nadimak=""):
             return False, "Email je već registrovan."
         db.table("users").insert({
             "email": email.lower().strip(),
-            "password_hash": hash_loz(lozinka),
+            "password_hash": hash_loz_bcrypt(lozinka),
             "full_name": ime.strip(),
             "institution": institucija.strip(),
             "nadimak": (nadimak or "").strip() or None,
@@ -545,16 +601,59 @@ def db_registruj(email, lozinka, ime, institucija, nadimak=""):
         return False, f"Greška: {e}"
 
 
+def _minuta_do(vrijeme_iso):
+    try:
+        do = datetime.fromisoformat(vrijeme_iso.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return 0
+    return max(0, int((do - datetime.now(timezone.utc)).total_seconds() // 60) + 1)
+
+
 def db_login(email, lozinka):
     if not db:
         return None, "Baza podataka nije dostupna."
     try:
-        r = db.table("users").select("*").eq("email", email.lower().strip()).execute()
+        em = email.lower().strip()
+        r = db.table("users").select("*").eq("email", em).execute()
+        # Ista poruka za nepostojeći email i za pogrešnu lozinku — inače ekran
+        # prijave sam otkriva ko je registrovan.
         if not r.data:
-            return None, "Korisnik nije pronađen."
+            return None, "Pogrešan email ili lozinka."
         k = r.data[0]
-        if k["password_hash"] != hash_loz(lozinka):
-            return None, "Pogrešna lozinka."
+
+        zakljucan_do = k.get("locked_until")
+        if zakljucan_do and _minuta_do(zakljucan_do) > 0:
+            return None, (f"Nalog je zaključan zbog previše pogrešnih pokušaja. "
+                          f"Pokušajte ponovo za {_minuta_do(zakljucan_do)} min.")
+
+        tacna, treba_migraciju = provjeri_lozinku(lozinka, k.get("password_hash"))
+        if not tacna:
+            promasaji = int(k.get("failed_logins") or 0) + 1
+            izmjena = {"failed_logins": promasaji}
+            if promasaji >= BROJ_PROMASAJA_ZA_ZAKLJUCAVANJE:
+                izmjena["locked_until"] = (
+                    datetime.now(timezone.utc) + timedelta(minutes=ZAKLJUCAVANJE_MINUTA)
+                ).isoformat()
+            try:
+                db.table("users").update(izmjena).eq("email", em).execute()
+            except Exception:
+                pass        # brojač ne smije oboriti prijavu ako kolone još nema
+            if promasaji >= BROJ_PROMASAJA_ZA_ZAKLJUCAVANJE:
+                return None, (f"Nalog je zaključan na {ZAKLJUCAVANJE_MINUTA} min zbog "
+                              f"{promasaji} pogrešna pokušaja prijave.")
+            preostalo = BROJ_PROMASAJA_ZA_ZAKLJUCAVANJE - promasaji
+            return None, f"Pogrešan email ili lozinka. Preostalo pokušaja: {preostalo}."
+
+        # Uspjeh: brojač na nulu, i tiha migracija starog SHA-256 hasha na bcrypt.
+        izmjena = {"failed_logins": 0, "locked_until": None}
+        if treba_migraciju:
+            izmjena["password_hash"] = hash_loz_bcrypt(lozinka)
+        try:
+            db.table("users").update(izmjena).eq("email", em).execute()
+            k.update(izmjena)
+        except Exception as e:
+            zabiljezi_gresku(e)
+
         if k.get("suspended", False):
             return None, "Vaš nalog je privremeno suspendovan. Kontaktirajte administratora."
         if not k.get("approved", False):
@@ -564,6 +663,22 @@ def db_login(email, lozinka):
     except Exception as e:
         zabiljezi_gresku(e)
         return None, f"Greška: {e}"
+
+
+def db_zavrseni_scenariji(email):
+    """Svi završeni scenariji jednim upitom.
+
+    Lista scenarija je ranije zvala db_vec_uradio dvaput po scenariju, a
+    Streamlit prerenderuje pri svakoj interakciji — uz 15 scenarija to je 30
+    upita po kliku.
+    """
+    if not db:
+        return set()
+    try:
+        r = db.table("attempts").select("scenario_id").eq("user_email", email).execute()
+        return {a["scenario_id"] for a in (r.data or [])}
+    except Exception:
+        return set()
 
 
 def db_vec_uradio(email, scenario_id):
@@ -732,7 +847,8 @@ def db_resetuj_lozinku(email):
     try:
         abeceda = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789"
         privremena = "".join(secrets.choice(abeceda) for _ in range(10))
-        db.table("users").update({"password_hash": hash_loz(privremena)}).eq("email", email).execute()
+        db.table("users").update({"password_hash": hash_loz_bcrypt(privremena),
+                                  "failed_logins": 0, "locked_until": None}).eq("email", email).execute()
         return privremena
     except Exception as e:
         st.error(f"DB greška (reset lozinke): {e}")
@@ -1925,7 +2041,7 @@ def prikazi_moje_rezultate():
 def prikazi_gdpr_brisanje():
     """GDPR: korisnik može trajno obrisati svoj nalog i sve podatke."""
     email = st.session_state.get("korisnik_email", "")
-    if not email or email == ADMIN_EMAIL:
+    if not email or je_admin():
         return
 
     st.divider()
@@ -1961,6 +2077,12 @@ def prikazi_gdpr_brisanje():
 
 
 def prikazi_admin():
+    # Druga brava: navigacija već skriva Admin bez uloge, ali stranica se ne
+    # smije osloniti na to da je jedini put do nje meni.
+    if not je_admin():
+        st.error("Nemate pristup administraciji.")
+        st.stop()
+
     st.markdown("## Admin panel")
 
     # ── Obradi akciju iz session_state (ako postoji) ──
@@ -2138,7 +2260,7 @@ def prikazi_admin():
                           font-size:12px;font-weight:600">{badge_txt}</span>
                 </div>""", unsafe_allow_html=True)
 
-                if k["email"] != ADMIN_EMAIL:
+                if not je_admin(k):
                     c1, c2, c3 = st.columns(3)
                     ime_k = k.get("full_name", k["email"])
                     with c1:
@@ -2155,6 +2277,21 @@ def prikazi_admin():
                         if st.button("Obriši", key=f"brisi_{k['email']}", use_container_width=True):
                             st.session_state["admin_akcija"] = {"tip": "brisi", "email": k["email"], "ime": ime_k}
                             st.rerun()
+
+                    uloge = ["korisnik", "mentor", "admin"]
+                    trenutna = k.get("role") or "korisnik"
+                    u1, u2 = st.columns([3, 1])
+                    nova = u1.selectbox(
+                        "Uloga", uloge, index=uloge.index(trenutna) if trenutna in uloge else 0,
+                        key=f"uloga_{k['email']}", label_visibility="collapsed")
+                    if nova != trenutna:
+                        if u2.button("Dodijeli", key=f"uloga_btn_{k['email']}", use_container_width=True):
+                            ok, poruka = db_postavi_ulogu(k["email"], nova)
+                            if ok:
+                                st.success(f"{ime_k} je sada {nova}.")
+                                st.rerun()
+                            else:
+                                st.error(poruka)
 
     # ══ TAB 3: Žalbe na ocjene ══
     with tab_zalbe:
@@ -2852,7 +2989,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     st.markdown("---")
     nav_opcije = ["Scenariji", "Ljestvica", "Moji rezultati"]
-    if st.session_state.get("korisnik_email", "") == ADMIN_EMAIL:
+    if je_admin():
         nav_opcije.append("Admin")
     stranica = st.radio(
         "Navigacija",
@@ -2898,8 +3035,9 @@ if odabrani_id is None:
 
     # Sortiraj: nezavršeni prvi, završeni ispod
     svi = [(sid, s) for sid, s in SCENARIJI.items() if s.get("aktivan", True)]
-    nezavrseni = [(sid, sc) for sid, sc in svi if not db_vec_uradio(email, sid)]
-    zavrseni = [(sid, sc) for sid, sc in svi if db_vec_uradio(email, sid)]
+    zavrseni_ids = db_zavrseni_scenariji(email)
+    nezavrseni = [(sid, sc) for sid, sc in svi if sid not in zavrseni_ids]
+    zavrseni = [(sid, sc) for sid, sc in svi if sid in zavrseni_ids]
 
     def prikazi_karticu(sc_id, sc, uradjen):
         status_bg = "#dcfce7" if uradjen else "#dbeafe"

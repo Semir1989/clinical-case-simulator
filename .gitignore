@@ -3,3 +3,6 @@ venv/
 __pycache__/
 *.pyc
 .streamlit/secrets.toml
+
+# Kalibracioni skup — Semirovi transkripti, ne idu u javni repo
+kalibracija/referenca.json

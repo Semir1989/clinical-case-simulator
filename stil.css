@@ -1,0 +1,301 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@500;600;700;800&display=swap');
+
+/* ── Edu Pharma Community — dizajn tokeni (boje iz loga) ── */
+:root {
+    --epc-navy: #1E3A8A;       /* tamnoplava — "Edu Pharma" */
+    --epc-navy-dark: #152C6B;
+    --epc-blue: #2C6FBE;       /* kraljevsko plava iz simbola */
+    --epc-teal: #2FB7C6;       /* tirkizna iz simbola i "COMMUNITY" */
+    --epc-teal-dark: #0D8A9E;
+    --epc-bg: #F4F8FB;
+    --epc-surface: #FFFFFF;
+    --epc-text: #16233B;
+    --epc-muted: #51637A;
+    --epc-border: #D7E3EE;
+    color-scheme: light only !important;
+}
+
+/* ── Forsiran light mode — blokira dark prefers ── */
+html, body, [class*="css"] {
+    font-family: 'Inter', 'Poppins', sans-serif !important;
+    color-scheme: light !important;
+}
+@media (prefers-color-scheme: dark) {
+    html, body { background-color: #F4F8FB !important; color: #16233B !important; }
+}
+#MainMenu, footer { visibility: hidden; }
+
+/* ── Naslovi — Poppins, navy iz loga ── */
+[data-testid="stMain"] h1, [data-testid="stMain"] h2,
+[data-testid="stMain"] h3, [data-testid="stMain"] h4,
+.main h1, .main h2, .main h3, .main h4 {
+    font-family: 'Poppins', sans-serif !important;
+    color: var(--epc-navy) !important;
+    letter-spacing: -0.3px;
+}
+
+/* ── Pozadina ── */
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stAppViewContainer"] > .main,
+[data-testid="block-container"] {
+    background-color: var(--epc-bg) !important;
+}
+
+/* ── Sidebar — navy gradijent kao logo ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, var(--epc-navy-dark) 0%, var(--epc-navy) 55%, #17608F 100%) !important;
+}
+[data-testid="stSidebar"] * { color: #FFFFFF !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(255,255,255,0.25) !important; }
+[data-testid="stSidebar"] button {
+    background: rgba(255,255,255,0.14) !important;
+    color: white !important;
+    border: 1px solid rgba(255,255,255,0.35) !important;
+    border-radius: 10px !important;
+}
+[data-testid="stSidebar"] button:hover {
+    background: rgba(47,183,198,0.45) !important;
+    border-color: rgba(255,255,255,0.6) !important;
+}
+
+/* ── Dugmad — višestruki selektori za Streamlit 1.5x ── */
+.stButton > button,
+.stFormSubmitButton > button,
+[data-testid="stFormSubmitButton"] button,
+[data-testid="baseButton-primary"],
+[data-testid="baseButton-secondary"] {
+    border-radius: 12px !important;
+    font-weight: 600 !important;
+    font-size: 16px !important;
+    padding: 12px 22px !important;
+    min-height: 46px !important;
+    transition: all 0.2s ease !important;
+}
+/* Primary dugme — plava→navy kao logo */
+.stButton > button[kind="primary"],
+.stFormSubmitButton > button[kind="primary"],
+[data-testid="baseButton-primary"],
+[data-testid="stFormSubmitButton"] button,
+.stButton > button:first-of-type {
+    background: linear-gradient(135deg, #2C6FBE, #1E3A8A) !important;
+    border: none !important;
+    color: white !important;
+    -webkit-text-fill-color: white !important;
+}
+.stButton > button:hover,
+.stFormSubmitButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 18px rgba(30,58,138,0.35) !important;
+}
+/* Secondary dugme */
+.stButton > button[kind="secondary"],
+[data-testid="baseButton-secondary"] {
+    background: white !important;
+    border: 2px solid #1E3A8A !important;
+    color: #1E3A8A !important;
+    -webkit-text-fill-color: #1E3A8A !important;
+}
+/* Tastaturna navigacija — jasan focus prsten */
+.stButton > button:focus-visible,
+.stFormSubmitButton > button:focus-visible {
+    outline: 3px solid var(--epc-teal) !important;
+    outline-offset: 2px !important;
+}
+
+/* ── Input polja — bijela pozadina, vidljiv tekst ── */
+.stTextInput > div > div > input,
+[data-testid="stTextInputRootElement"] input,
+[data-baseweb="input"] input,
+[data-baseweb="base-input"] input {
+    background-color: #FFFFFF !important;
+    color: #16233B !important;
+    -webkit-text-fill-color: #16233B !important;
+    border-radius: 12px !important;
+    border: 1.5px solid #C9DBEA !important;
+    font-size: 16px !important;
+    padding: 12px 14px !important;
+}
+[data-baseweb="input"],
+[data-baseweb="base-input"],
+[data-baseweb="input"] > div,
+[data-testid="stTextInputRootElement"] > div {
+    background-color: #FFFFFF !important;
+}
+.stTextInput > div > div > input::placeholder,
+[data-baseweb="input"] input::placeholder { color: #7C93A8 !important; -webkit-text-fill-color: #7C93A8 !important; }
+.stTextInput > div > div > input:focus,
+[data-baseweb="input"]:focus-within {
+    border-color: #2C6FBE !important;
+    box-shadow: 0 0 0 3px rgba(47,183,198,0.25) !important;
+    outline: none !important;
+}
+
+/* ── Selectbox ── */
+.stSelectbox > div > div {
+    background: white !important;
+    border-radius: 12px !important;
+    border: 1.5px solid #C9DBEA !important;
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: white !important;
+    border-radius: 14px !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
+}
+.stTabs [data-baseweb="tab"] {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    color: #48627D !important;
+    font-size: 15px !important;
+}
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, #2C6FBE, #1E3A8A) !important;
+    color: white !important;
+}
+
+/* ── Upozorenja — forsiran kontrast ── */
+[data-testid="stAlert"] {
+    border-radius: 12px !important;
+    border-width: 1.5px !important;
+}
+[data-testid="stAlert"][data-baseweb="notification"] {
+    background-color: #FFF8E1 !important;
+}
+/* Warning — tamni tekst na žutoj pozadini */
+div[data-testid="stAlert"] p,
+div[data-testid="stAlert"] span,
+div[data-testid="stAlert"] div {
+    color: #5C4000 !important;
+    font-weight: 500 !important;
+}
+/* Success — zelena */
+.stSuccess { background-color: #E8F8F0 !important; }
+.stSuccess * { color: #1A5C38 !important; }
+/* Info — tirkizna */
+.stInfo { background-color: #E0F4F7 !important; }
+.stInfo * { color: #0A4A54 !important; }
+/* Error — crvena */
+.stError { background-color: #FDE8E8 !important; }
+.stError * { color: #8B0000 !important; }
+
+/* ── Chat poruke ── */
+[data-testid="stChatMessage"] {
+    border-radius: 16px !important;
+    margin-bottom: 10px !important;
+    background: white !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
+}
+
+/* ── Chat input ── */
+[data-testid="stChatInput"] > div {
+    border-radius: 16px !important;
+    border: 2px solid #C9DBEA !important;
+    background: white !important;
+}
+[data-testid="stChatInput"] > div:focus-within {
+    border-color: #2C6FBE !important;
+    box-shadow: 0 0 0 3px rgba(47,183,198,0.2) !important;
+}
+
+/* ── Metric kartice ── */
+[data-testid="metric-container"] {
+    background: white !important;
+    border-radius: 14px !important;
+    padding: 18px !important;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.07) !important;
+    border-top: 3px solid var(--epc-teal) !important;
+}
+[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    color: var(--epc-navy) !important;
+    font-weight: 800 !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] {
+    background: white !important;
+    border-radius: 14px !important;
+    border: 1.5px solid var(--epc-border) !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05) !important;
+}
+
+/* ── Divider ── */
+hr { border-color: var(--epc-border) !important; }
+
+/* ── Form ── */
+[data-testid="stForm"] {
+    background: white !important;
+    border-radius: 16px !important;
+    padding: 20px !important;
+    border: 1.5px solid var(--epc-border) !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06) !important;
+}
+
+/* ── Login/Registracija — veći font u formi ── */
+[data-testid="stForm"] label {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    color: var(--epc-text) !important;
+}
+[data-testid="stForm"] .stFormSubmitButton button {
+    font-size: 17px !important;
+    font-weight: 700 !important;
+    padding: 12px 20px !important;
+}
+
+/* ── Sidebar radio navigacija — veća slova ── */
+[data-testid="stSidebar"] [role="radiogroup"] label {
+    font-size: 17px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.2px !important;
+}
+[data-testid="stSidebar"] [role="radiogroup"] label p {
+    font-size: 17px !important;
+    font-weight: 600 !important;
+}
+
+/* ── Mobile optimizacija ── */
+@media (max-width: 768px) {
+    [data-testid="block-container"] { padding: 12px !important; }
+    .stButton > button { font-size: 14px !important; padding: 10px 16px !important; }
+    [data-testid="stSidebar"] [role="radiogroup"] label,
+    [data-testid="stSidebar"] [role="radiogroup"] label p {
+        font-size: 19px !important;
+        font-weight: 700 !important;
+    }
+}
+/* ── Mobile: istakni Streamlit-ov ugrađeni hamburger ── */
+@media (max-width: 768px) {
+    [data-testid="stSidebarCollapsedControl"] {
+        background: linear-gradient(135deg, #2C6FBE, #1E3A8A) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 4px 16px rgba(30,58,138,0.5) !important;
+        border: 2px solid rgba(255,255,255,0.7) !important;
+        top: 10px !important;
+        left: 10px !important;
+        padding: 6px !important;
+        min-width: 48px !important;
+        min-height: 48px !important;
+        z-index: 999999 !important;
+        animation: menuPulse 2s ease-in-out 3 !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] button {
+        background: transparent !important;
+        border: none !important;
+        color: white !important;
+        padding: 8px !important;
+    }
+    [data-testid="stSidebarCollapsedControl"] svg {
+        color: white !important;
+        width: 26px !important;
+        height: 26px !important;
+        stroke: white !important;
+    }
+    @keyframes menuPulse {
+        0%, 100% { box-shadow: 0 4px 16px rgba(30,58,138,0.5); }
+        50% { box-shadow: 0 4px 28px rgba(30,58,138,0.85), 0 0 0 8px rgba(47,183,198,0.25); }
+    }
+}

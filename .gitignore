@@ -6,3 +6,10 @@ __pycache__/
 
 # Kalibracioni skup — Semirovi transkripti, ne idu u javni repo
 kalibracija/referenca.json
+
+# Planski dokumenti — radni materijal, ne ide u javni repo
+PLAN-*.html
+PLAN-*.pdf
+
+# Case reportovi (autorski radovi) i generisani scenariji — otkrivaju rjesenja
+scenario/

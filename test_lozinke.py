@@ -14,18 +14,9 @@ from datetime import datetime, timezone
 
 import bcrypt
 
-_KOD = open("app.py", encoding="utf-8").read()
-for _od, _do in [("BROJ_PROMASAJA_ZA_ZAKLJUCAVANJE", "def nadimak_za("),
-                 ("def _minuta_do(", "def db_login(")]:
-    exec(compile(_KOD[_KOD.index(_od):_KOD.index(_do)], "app.py", "exec"))
-
-# je_admin / db_postavi_ulogu se oslanjaju na Streamlit i bazu, pa se ovdje
-# provjerava samo čista logika uloge.
-ADMIN_EMAIL = "info@farmaceutupraksi.ba"
-
-
-def je_admin(k):
-    return (k.get("role") == "admin") or (k.get("email", "") == ADMIN_EMAIL)
+from baza import (BROJ_PROMASAJA_ZA_ZAKLJUCAVANJE, ZAKLJUCAVANJE_MINUTA,
+                  _minuta_do, hash_loz_bcrypt, je_admin, provjeri_lozinku)
+from konfig import ADMIN_EMAIL
 
 
 pao = []

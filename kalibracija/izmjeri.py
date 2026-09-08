@@ -17,14 +17,10 @@ import json
 import os
 import sys
 
-# app.py se ne može uvesti (pokreće Streamlit), pa se uzimaju samo potrebni dijelovi.
-_KOD = io.open("app.py", encoding="utf-8").read()
-for _od, _do in [("JEZIK_PRAVILO = ", "# ─── DB funkcije"),
-                 ("EVALUATOR_SISTEM = ", "def pozovi_evaluatora"),
-                 ("def _normalizuj(", "# ─── AI Generator scenarija")]:
-    exec(compile(_KOD[_KOD.index(_od):_KOD.index(_do)], "app.py", "exec"))
-
-MAX_POTEZA = 10
+sys.path.insert(0, os.getcwd())
+from konfig import MAX_POTEZA, MODEL_EVALUATOR          # noqa: E402
+from ocjena import _normalizuj, provjeri_ocjenu         # noqa: E402
+from promptovi import EVALUATOR_SHEMA, EVALUATOR_SISTEM  # noqa: E402
 
 # Teme koje se u ocjenama najčešće pogrešno prijave kao "nije pitao".
 # Izrazi su namjerno uski — "preparat" ili "dodat" hvataju i sasvim legitimne
@@ -92,9 +88,6 @@ def main():
 
     for s in stavke:
         sc = scenarij(s["scenarij"])
-        prompt_shema = _KOD[_KOD.index("EVALUATOR_SHEMA = ") + len('EVALUATOR_SHEMA = """'):]
-        prompt_shema = prompt_shema[:prompt_shema.index('"""')]
-
         poruka = (f"Ocijeni savjetovanje farmaceuta u apoteci.\n\n"
                   f"Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}\n"
                   f"Crvene zastavice: {sc['crvene_zastavice']}\n"
@@ -103,9 +96,9 @@ def main():
                   f"OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {MAX_POTEZA} poteza "
                   f"(poruka). Vidi pravilo 3.\n\nTRANSKRIPT:\n{s['transkript']}\n\n"
                   f"Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, "
-                  f"tačno ovog oblika:\n{prompt_shema}")
+                  f"tačno ovog oblika:\n{EVALUATOR_SHEMA}")
 
-        r = ai.messages.create(model="claude-sonnet-4-6", max_tokens=3000, temperature=0,
+        r = ai.messages.create(model=MODEL_EVALUATOR, max_tokens=3000, temperature=0,
                                system=EVALUATOR_SISTEM,
                                messages=[{"role": "user", "content": poruka}])
         tekst = r.content[0].text

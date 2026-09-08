@@ -1,4 +1,4 @@
-"""Testovi za provjeru ocjene (F0) — pokreću se bez API poziva i bez baze.
+"""Testovi za provjeru ocjene — pokreću se bez API poziva i bez baze.
 
     python test_ocjena.py
 
@@ -9,11 +9,7 @@ modelu, i kompatibilnost sa starim zapisima u koloni result_json.
 import re
 import sys
 
-# ─── kopija logike iz app.py (app.py se ne može uvesti bez Streamlita) ───────
-_KOD = open("app.py", encoding="utf-8").read()
-_od = _KOD.index("def _normalizuj(")
-_do = _KOD.index("# ─── AI Generator scenarija")
-exec(compile(_KOD[_od:_do], "app.py", "exec"))
+from ocjena import _normalizuj, provjeri_ocjenu
 
 # Izmišljen razgovor, namjerno nije nijedan stvarni scenarij — repo je javan,
 # pa test ne smije odati rješenje slučaja koji polaznici tek trebaju odigrati.

@@ -25,6 +25,7 @@ Do septembra 2026. sve je živjelo u jednom fajlu od 3.281 linije. Sada:
 | `promptovi.py` | Sistemski promptovi za pacijenta, ocjenjivača i generator |
 | `motor.py` | Pozivi prema modelu |
 | `ocjena.py` | Provjera dokaza i izračun ocjene — čist Python, bez Streamlita |
+| `stanje.py` | Skriveno stanje pacijenta i didaskalije — takođe čist Python |
 | `scenariji.py` | Ugrađeni scenariji + oni iz baze |
 | `demo.py` | Besplatan demo slučaj, unaprijed napisan, bez API poziva |
 | `stil.py` + `stil.css` | Izgled |
@@ -36,7 +37,7 @@ Do septembra 2026. sve je živjelo u jednom fajlu od 3.281 linije. Sada:
 Redoslijed uvoza je jednosmjeran i nema kružnih zavisnosti:
 
 ```
-konfig → baza, posta → promptovi → ocjena, motor → scenariji → ui → app
+konfig → baza, posta → promptovi → ocjena, stanje → scenariji → motor → ui → app
 ```
 
 `konfig.py` ne uvozi nijedan drugi modul projekta. Ako se to promijeni, kružne
@@ -67,6 +68,8 @@ Na Streamlit Cloudu isti ključevi idu u **Settings → Secrets**, ne u `.env`.
 ```bash
 venv/Scripts/python test_ocjena.py     # provjera dokaza i izračun ocjene
 venv/Scripts/python test_lozinke.py    # bcrypt migracija, zaključavanje, uloge
+venv/Scripts/python test_prompt.py     # gradnja prompta, persona, povratak na stari tekst
+venv/Scripts/python test_stanje.py     # parsiranje skrivenog stanja i didaskalija
 ```
 
 Ne troše API i ne diraju bazu. Pokreću se iz korijena projekta.
@@ -85,6 +88,8 @@ Poslije izmjene priručnika pacijenta pokrenuti testni skup ponašanja — tako�
 ```bash
 venv/Scripts/python skripte/test_ponasanja.py         # svih osam
 venv/Scripts/python skripte/test_ponasanja.py 1 4     # samo odabrani
+venv/Scripts/python skripte/test_otpor.py osudjujuci  # povjerenje pada, ništa se ne otkriva
+venv/Scripts/python skripte/test_otpor.py empatican   # povjerenje raste, osjetljivo izlazi
 ```
 
 Model nije determinističan, pa te testove ocjenjuje čovjek; automatska provjera
@@ -121,6 +126,7 @@ create table attempts (
   sigurnost       integer,
   result_json     text,        -- kompletna ocjena, uključujući citate i odbačene tvrdnje
   transcript      text,        -- popunjeno tek od 2. jula 2026.
+  stanje_json     jsonb,       -- niz skrivenih stanja po potezu: povjerenje, faza, ishod
   appeal_status   text,        -- null | otvorena | prihvacena | odbijena
   appeal_text     text,
   appeal_response text,
@@ -138,6 +144,8 @@ create table scenarios (
   skriveni_detalji text,        -- stari oblik; koristi se samo ako je cinjenice NULL
   cinjenice        jsonb,       -- [{id, cinjenica, okidac, osjetljivo}] — jedini izvor istine
   persona          jsonb default '{}',   -- kako pacijent govori, ne sta zna
+  otpor            jsonb,       -- [{id, replika, redoslijed, uslov_popustanja, prag_povjerenja}]
+  vidljivi_znakovi text,        -- sta se vidi bez pitanja; izvor za didaskalije
   crvene_zastavice text,
   ocekivano        text,
   pocetna_poruka   text,
@@ -187,6 +195,13 @@ koji nikad ne stiže u browser.
   pogađa njen okidač. Osjetljive daje na drugo pitanje ili nakon empatije — nikad ih ne
   krije zauvijek. Scenarij bez liste činjenica pada na stari tekst `skriveni_detalji`; taj
   povratak ne uklanjati dok svi scenariji nisu konvertovani.
+- **Blok stanja ostaje u historiji koja ide modelu**, a skida se samo pri prikazu. Bez toga
+  pacijent svaki potez počinje s povjerenjem 5 i krivulja prestaje značiti išta. Ako blok
+  fali, zadržava se prethodno stanje — nagli pad bez razloga u razgovoru je gora greška.
+- **Završna replika ide kao potez korisnika**, ne samo kroz sistemski prompt. Historija
+  završava replikom pacijenta, pa bi model inače nastavljao tu istu repliku i vraćao prazno.
+- **Prigovor bez uslova popuštanja je samo prepreka.** Svaki prigovor osim onih označenih
+  `fatalno_ako_izda` mora imati uslov — inače polaznik nema šta naučiti iz toga kako ga je skinuo.
 - **Persona mijenja samo KAKO pacijent govori**, nikad ŠTA zna. Ako se u personu ubaci
   klinički podatak, prestaje biti provjerljivo šta je pacijent smio otkriti.
 - **Sentry `ThreadingIntegration` mora ostati isključena** — lomi Streamlit

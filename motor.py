@@ -4,10 +4,11 @@ import json
 
 import streamlit as st
 
-from konfig import (JEZIK_PRAVILO, MAX_POTEZA, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
+from konfig import (JEZIK_PRAVILO, MAX_POTEZA, zabiljezi_gresku, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
                     ai)
 from baza import db_log_upotrebu, db_spremi
 from ocjena import izvuci_json, provjeri_ocjenu
+from stanje import izdvoji_stanje, sazetak_za_evaluatora
 from scenariji import SCENARIJI
 from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM, GENERATOR_SISTEM,
                        PACIJENT_PRIRUCNIK)
@@ -47,11 +48,37 @@ def opisi_cinjenice(sc):
     for c in cinjenice:
         oznaka = " [OSJETLJIVO — prešućuješ iz stida ili straha]" if c.get("osjetljivo") else ""
         redovi.append(
-            f"- {c.get('cinjenica', '')}\n"
+            f"- ({c.get('id', '?')}) {c.get('cinjenica', '')}\n"
             f"  otključava je: {c.get('okidac', 'bilo koje direktno pitanje o ovome')}{oznaka}"
         )
     return ("\nTVOJE ČINJENICE. Ovo je sve što o sebi znaš — ništa izvan ove liste ne postoji.\n"
-            "Uz svaku piše koje je pitanje otključava.\n" + "\n".join(redovi))
+            "Uz svaku piše njena oznaka u zagradi i pitanje koje je otključava. Kad neku "
+            "otkriješ, u blok stanja upisuješ TAČNO tu oznaku iz zagrade, nikad izmišljenu.\n"
+            + "\n".join(redovi))
+
+
+def opisi_otpor(otpor):
+    """Prigovori s uslovima popuštanja, redom kojim se iznose."""
+    if not otpor:
+        return ""
+    redovi = []
+    for o in sorted(otpor, key=lambda x: x.get("redoslijed", 99)):
+        r = ['- "' + o.get("replika", "") + '"']
+        if o.get("fatalno_ako_izda"):
+            r.append("  OVAJ PRIGOVOR NE POPUŠTAŠ NIKAD, ma šta farmaceut rekao.")
+        else:
+            r.append("  popuštaš kad farmaceut " + o.get("uslov_popustanja", "objasni razlog")
+                     + ", uz povjerenje najmanje " + str(o.get("prag_povjerenja", 5)))
+        redovi.append("\n".join(r))
+    return ("\nTVOJI PRIGOVORI, redom kojim ih iznosiš — jedan po replici, ne svi odjednom:\n"
+            + "\n".join(redovi))
+
+
+def opisi_znakove(znakovi):
+    if not znakovi:
+        return ""
+    return ("\nŠTA SE NA TEBI VIDI (koristi kao didaskalije u uglastim zagradama, štedljivo):\n"
+            + znakovi)
 
 
 def napravi_system_prompt(sc):
@@ -62,6 +89,8 @@ def napravi_system_prompt(sc):
         f"Terapija koju odmah priznaješ: {sc['terapija']}\n"
         + opisi_personu(sc.get("persona"))
         + "\n" + opisi_cinjenice(sc)
+        + "\n" + opisi_otpor(sc.get("otpor"))
+        + "\n" + opisi_znakove(sc.get("vidljivi_znakovi"))
     )
     return [
         {"type": "text", "text": staticki, "cache_control": {"type": "ephemeral"}},
@@ -69,17 +98,51 @@ def napravi_system_prompt(sc):
     ]
 
 
-def pozovi_pacijenta(poruke, sc):
+def pozovi_pacijenta(poruke, sc, prethodno_stanje=None, dodatna_uputa=""):
+    """Vraća (replika bez bloka stanja, stanje, sirovi odgovor).
+
+    Sirovi odgovor ide natrag u historiju SA blokom stanja — tako pacijent u
+    sljedećem potezu vidi svoje prethodno povjerenje i ne počinje iznova.
+    """
+    sistem = napravi_system_prompt(sc)
+    if dodatna_uputa:
+        sistem = sistem + [{"type": "text", "text": dodatna_uputa}]
     r = ai.messages.create(
-        model=MODEL_PACIJENT, max_tokens=400,
-        system=napravi_system_prompt(sc), messages=poruke,
+        model=MODEL_PACIJENT, max_tokens=500,
+        system=sistem, messages=poruke,
     )
     db_log_upotrebu("poruka", st.session_state.get("odabrani_scenarij", ""),
                     r.usage.input_tokens, r.usage.output_tokens)
-    return r.content[0].text
+    sirovi = r.content[0].text
+    cist, novo = izdvoji_stanje(sirovi, prethodno_stanje)
+    return cist, novo, sirovi
 
 
-def pozovi_evaluatora(transkript, sc, broj_poteza=MAX_POTEZA):
+UPUTA_ZATVARANJE = (
+    "[UPUTA, nije replika farmaceuta] Razgovor se završava i farmaceut se oprostio. "
+    "Daj SAMO svoju posljednju repliku — kratku, u prvom licu — iz koje se jasno vidi šta ćeš "
+    "uraditi kad izađeš iz apoteke. U bloku stanja obavezno upiši fazu zatvaranje i ishod: "
+    "prihvatio, prihvatio_nevoljko, odbio ili otisao_s_lijekom."
+)
+
+
+def zatvori_razgovor(poruke, sc, prethodno_stanje=None):
+    """Traži završnu repliku prije ocjenjivanja, da polaznik vidi ishod svog rada.
+
+    Uputa ide kao posljednji potez korisnika, ne samo u sistemski prompt: historija
+    završava replikom pacijenta, pa bi model bez toga nastavljao tu istu repliku
+    umjesto da počne novu — i vraćao prazno.
+    """
+    try:
+        poruke = list(poruke) + [{"role": "user", "content": UPUTA_ZATVARANJE}]
+        return pozovi_pacijenta(poruke, sc, prethodno_stanje, UPUTA_ZATVARANJE)
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return "", prethodno_stanje, ""
+
+
+def pozovi_evaluatora(transkript, sc, broj_poteza=MAX_POTEZA, stanja=None):
+    sazetak = sazetak_za_evaluatora(stanja, sc.get("cinjenice"))
     prompt = f"""Ocijeni savjetovanje farmaceuta u apoteci.
 
 Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}
@@ -93,6 +156,8 @@ OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {broj_poteza} poteza (poruka)
 
 TRANSKRIPT:
 {transkript}
+
+{sazetak}
 
 Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, tačno ovog oblika:
 {EVALUATOR_SHEMA}"""
@@ -111,15 +176,17 @@ def pokreni_evaluaciju(stanje, sc, sc_id):
         f"{'Farmaceut' if p['role'] == 'user' else 'Pacijent'}: {p['content']}"
         for p in stanje["poruke_prikaz"]
     )
+    stanja = stanje.get("stanja") or []
     with st.spinner("Analizira savjetovanje..."):
-        json_tekst = pozovi_evaluatora(transkript, sc, MAX_POTEZA)
+        json_tekst = pozovi_evaluatora(transkript, sc, MAX_POTEZA, stanja)
 
     rezultat = izvuci_json(json_tekst)
     if rezultat:
         rezultat = provjeri_ocjenu(rezultat, transkript)
         stanje["ocjena"] = rezultat
         stanje["zavrseno"] = True
-        db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript)
+        db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript,
+                  stanja)
     else:
         st.error("Greška pri analizi ocjene. Pokušaj ponovo.")
         stanje["zavrseno"] = False

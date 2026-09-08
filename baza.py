@@ -232,7 +232,7 @@ def db_vec_uradio(email, scenario_id):
         return False
 
 
-def db_spremi(email, scenario_id, rezultat, transkript=""):
+def db_spremi(email, scenario_id, rezultat, transkript="", stanja=None):
     if not db:
         return
     red = {
@@ -245,14 +245,19 @@ def db_spremi(email, scenario_id, rezultat, transkript=""):
         "result_json": json.dumps(rezultat, ensure_ascii=False),
     }
     try:
-        db.table("attempts").insert({**red, "transcript": transkript}).execute()
+        db.table("attempts").insert(
+            {**red, "transcript": transkript, "stanje_json": stanja or None}).execute()
     except Exception:
-        # Fallback ako kolona 'transcript' još ne postoji u bazi
+        # Postepeno odustajanje ako neka od novijih kolona još ne postoji u bazi.
+        # Rezultat korisnika je ono što se ne smije izgubiti — radije bez stanja
+        # i bez transkripta nego bez ocjene.
         try:
-            db.table("attempts").insert(red).execute()
-        except Exception as e:
-            # Gubitak rezultata korisnika — kritično, mora u log grešaka
-            zabiljezi_gresku(e)
+            db.table("attempts").insert({**red, "transcript": transkript}).execute()
+        except Exception:
+            try:
+                db.table("attempts").insert(red).execute()
+            except Exception as e:
+                zabiljezi_gresku(e)
 
 
 def db_dohvati_ocjenu(email, scenario_id):
@@ -581,6 +586,8 @@ def _ucitaj_db_scenarije():
                 "rubrika": red.get("rubrika") or "",
                 "persona": red.get("persona") or {},
                 "cinjenice": red.get("cinjenice") or None,
+                "otpor": red.get("otpor") or None,
+                "vidljivi_znakovi": red.get("vidljivi_znakovi") or "",
                 "aktivan": bool(red.get("active", False)),
                 "_iz_baze": True,
             }

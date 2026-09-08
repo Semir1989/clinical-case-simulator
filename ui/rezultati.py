@@ -1,5 +1,4 @@
 """Ekran \"Moji rezultati\": nadimak, historija pokusaja, brisanje naloga."""
-import json
 import time
 
 import streamlit as st
@@ -7,7 +6,6 @@ import streamlit as st
 from baza import (db_login, db_moji_rezultati, db_obrisi_sve_podatke, db_posalji_zalbu,
                   db_postavi_nadimak, je_admin, nadimak_za)
 from scenariji import SCENARIJI
-from ui.komponente import prikazi_ocjenu
 
 def prikazi_nadimak_postavku():
     """Nadimak je jedino što drugi vide na ljestvici — zato se mijenja ovdje."""

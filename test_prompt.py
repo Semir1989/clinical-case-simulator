@@ -41,6 +41,8 @@ STARI = {
 print("\nScenarij s listom činjenica")
 d = napravi_system_prompt(NOVI)[1]["text"]
 provjeri("činjenica je u promptu", "Tribulus 500 mg iz sportske prodavnice" in d)
+provjeri("oznaka činjenice je u promptu", "(tribulus)" in d)
+provjeri("model je upućen da koristi tačnu oznaku", "TAČNO tu oznaku" in d)
 provjeri("okidač je uz činjenicu", "pitanje o dodacima prehrani ili biljnim preparatima" in d)
 provjeri("osjetljiva je označena", "[OSJETLJIVO" in d)
 provjeri("neosjetljiva nije označena kao osjetljiva",

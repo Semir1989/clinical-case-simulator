@@ -23,10 +23,10 @@ from baza import (_ucitaj_objave, db_dohvati_ocjenu, db_log_upotrebu,  # noqa: E
                   je_admin)
 from demo import prikazi_demo  # noqa: E402
 from konfig import DNEVNI_LIMIT_PORUKA, MAX_POTEZA  # noqa: E402
-from motor import pokreni_evaluaciju, pozovi_pacijenta  # noqa: E402
+from motor import pokreni_evaluaciju, pozovi_pacijenta, zatvori_razgovor  # noqa: E402
 from scenariji import SCENARIJI  # noqa: E402
 from ui.admin import prikazi_admin  # noqa: E402
-from ui.komponente import prikazi_ocjenu  # noqa: E402
+from ui.komponente import prikazi_ocjenu, prikazi_repliku  # noqa: E402
 from ui.ljestvica import prikazi_leaderboard  # noqa: E402
 from ui.prijava import prikazi_login  # noqa: E402
 from ui.rezultati import prikazi_gdpr_brisanje, prikazi_moje_rezultate  # noqa: E402
@@ -177,12 +177,33 @@ st.markdown(f"""
 
 st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
+def zavrsi_i_ocijeni(stanje, sc, sc_id):
+    """Prije ocjene traži završnu repliku pacijenta, da se vidi ishod razgovora.
+
+    Ranije je razgovor jednostavno prestajao i polaznik nikad nije saznao je li
+    pacijent poslušao savjet. Jedan dodatni poziv, oko 0,003 USD.
+    """
+    if stanje["poruke_prikaz"] and not stanje.get("zatvoren"):
+        with st.spinner("Pacijent se oprašta..."):
+            zavrsna, novo_stanje, sirovi = zatvori_razgovor(
+                stanje["poruke_api"], sc, stanje.get("zadnje_stanje"))
+        stanje["zatvoren"] = True
+        if zavrsna:
+            stanje["poruke_prikaz"].append({"role": "assistant", "content": zavrsna})
+            stanje["poruke_api"].append({"role": "assistant", "content": sirovi or zavrsna})
+            if novo_stanje:
+                stanje["stanja"].append(novo_stanje)
+                stanje["zadnje_stanje"] = novo_stanje
+    pokreni_evaluaciju(stanje, sc, sc_id)
+
+
 # ─── Session state ────────────────────────────────────────────────────────────
 kljuc = f"chat_{odabrani_id}"
 if kljuc not in st.session_state:
     st.session_state[kljuc] = {
         "poruke_api": [], "poruke_prikaz": [],
         "ocjena": None, "zavrseno": False, "broj_poteza": 0,
+        "stanja": [], "zadnje_stanje": None,
         "zadnji_potez_vrijeme": time.time(),
     }
     if not vec_uradjen:
@@ -196,11 +217,11 @@ if vec_uradjen:
     with st.expander("Transkript razgovora"):
         for p in stanje["poruke_prikaz"]:
             with st.chat_message(p["role"]):
-                st.markdown(p["content"])
+                prikazi_repliku(p["content"], p["role"])
 
     ocjena_data = stanje.get("ocjena") or db_dohvati_ocjenu(email, odabrani_id)
     if ocjena_data:
-        prikazi_ocjenu(ocjena_data)
+        prikazi_ocjenu(ocjena_data, stanje.get("stanja"))
     else:
         st.success("Scenarij uspješno završen. Ocjena nije dostupna.")
     st.stop()
@@ -208,7 +229,7 @@ if vec_uradjen:
 # ─── Aktivni razgovor ─────────────────────────────────────────────────────────
 for p in stanje["poruke_prikaz"]:
     with st.chat_message(p["role"]):
-        st.markdown(p["content"])
+        prikazi_repliku(p["content"], p["role"])
 
 if not stanje["poruke_prikaz"]:
     prva = sc["pocetna_poruka"]
@@ -329,21 +350,27 @@ setInterval(function() {
         if stanje["broj_poteza"] < MAX_POTEZA:
             with st.chat_message("assistant"):
                 with st.spinner(""):
-                    odg = pozovi_pacijenta(stanje["poruke_api"], sc)
-                st.markdown(odg)
+                    odg, novo_stanje, sirovi = pozovi_pacijenta(
+                        stanje["poruke_api"], sc, stanje.get("zadnje_stanje"))
+                prikazi_repliku(odg, "assistant")
                 stanje["poruke_prikaz"].append({"role": "assistant", "content": odg})
-                stanje["poruke_api"].append({"role": "assistant", "content": odg})
+                # U historiju ide SIROVI odgovor, s blokom stanja — tako pacijent
+                # u sljedecem potezu vidi svoje prethodno povjerenje.
+                stanje["poruke_api"].append({"role": "assistant", "content": sirovi or odg})
+                if novo_stanje:
+                    stanje["stanja"].append(novo_stanje)
+                    stanje["zadnje_stanje"] = novo_stanje
             st.rerun()
         else:
             st.info(f"Dostigli ste maksimalan broj unosa ({MAX_POTEZA}). Savjetovanje se završava.")
-            pokreni_evaluaciju(stanje, sc, odabrani_id)
+            zavrsi_i_ocijeni(stanje, sc, odabrani_id)
             st.rerun()
 
 st.divider()
 if not stanje["zavrseno"] and stanje["broj_poteza"] >= 2:
     if st.button("Završi savjetovanje i dobij ocjenu", type="primary", use_container_width=True):
-        pokreni_evaluaciju(stanje, sc, odabrani_id)
+        zavrsi_i_ocijeni(stanje, sc, odabrani_id)
         st.rerun()
 
 if stanje["zavrseno"] and stanje["ocjena"]:
-    prikazi_ocjenu(stanje["ocjena"])
+    prikazi_ocjenu(stanje["ocjena"], stanje.get("stanja"))

@@ -521,6 +521,8 @@ def prikazi_admin():
                         "crvene_zastavice": s.get("crvene_zastavice", ""), "ocekivano": s.get("ocekivano", ""),
                         "pocetna_poruka": s.get("pocetna_poruka", ""), "rubrika": s.get("rubrika", ""),
                         "persona": s.get("persona") or {}, "cinjenice": s.get("cinjenice"),
+                        "otpor": s.get("otpor"),
+                        "vidljivi_znakovi": s.get("vidljivi_znakovi", ""),
                         "active": True,
                     })
                     if ok:
@@ -575,6 +577,18 @@ def prikazi_admin():
                 help='Svaka: {"id", "cinjenica", "okidac", "osjetljivo"}. Okidač je pitanje '
                      'koje činjenicu otključava. Osjetljive pacijent daje tek na drugo pitanje '
                      'ili nakon empatije. Prazna lista = koristi se stari tekst iznad.')
+
+            znakovi_in = st.text_area(
+                "Vidljivi znakovi", height=80,
+                value=izvor.get("vidljivi_znakovi", ""),
+                help="Šta farmaceut može primijetiti bez pitanja. Pacijent ih ubacuje kao "
+                     "didaskalije u uglastim zagradama.")
+            otpor_in = st.text_area(
+                "Prigovori (JSON lista)", height=220,
+                value=json.dumps(izvor.get("otpor") or [], ensure_ascii=False, indent=2),
+                help='Svaki: {"id", "replika", "redoslijed", "uslov_popustanja", '
+                     '"prag_povjerenja", "kriterij"}. Prigovor s "fatalno_ako_izda": true i '
+                     '"uslov_popustanja": null se ne popušta nikad.')
             zastavice_in = st.text_area("Crvene zastavice", value=izvor.get("crvene_zastavice", ""), height=100)
             ocekivano_in = st.text_area("Očekivano savjetovanje", value=izvor.get("ocekivano", ""), height=100)
             pocetna_in = st.text_input("Početna poruka pacijenta", value=izvor.get("pocetna_poruka", ""))
@@ -588,7 +602,7 @@ def prikazi_admin():
             st.session_state.pop("uredi_scenarij", None)
             st.rerun()
         if spremi:
-            cinjenice_val, greska_json = None, ""
+            cinjenice_val, otpor_val, greska_json = None, None, ""
             try:
                 cinjenice_val = json.loads(cinjenice_in) if cinjenice_in.strip() else []
                 if not isinstance(cinjenice_val, list):
@@ -600,6 +614,12 @@ def prikazi_admin():
                             break
             except json.JSONDecodeError as e:
                 greska_json = f"Činjenice nisu validan JSON: {e}"
+            try:
+                otpor_val = json.loads(otpor_in) if otpor_in.strip() else []
+                if not isinstance(otpor_val, list):
+                    greska_json = greska_json or "Prigovori moraju biti JSON lista."
+            except json.JSONDecodeError as e:
+                greska_json = greska_json or f"Prigovori nisu validan JSON: {e}"
 
             if greska_json:
                 st.error(greska_json)
@@ -619,6 +639,8 @@ def prikazi_admin():
                         "odnos_prema_lijekovima": odnos_in.strip(),
                     },
                     "cinjenice": cinjenice_val or None,
+                    "otpor": otpor_val or None,
+                    "vidljivi_znakovi": znakovi_in.strip(),
                     "naziv": naziv_in.strip(), "ime": ime_in.strip(), "godine": int(godine_in),
                     "tegoba": tegoba_in.strip(), "terapija": terapija_in.strip(),
                     "skriveni_detalji": skriveni_in.strip(), "crvene_zastavice": zastavice_in.strip(),

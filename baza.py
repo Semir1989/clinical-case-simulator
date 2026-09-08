@@ -239,9 +239,12 @@ def db_spremi(email, scenario_id, rezultat, transkript="", stanja=None):
         "user_email": email,
         "scenario_id": scenario_id,
         "score": float(rezultat.get("ukupna_ocjena", 0)),
-        "anamneza": int(rezultat.get("anamneza", 0)),
-        "komunikacija": int(rezultat.get("komunikacija", 0)),
-        "sigurnost": int(rezultat.get("sigurnost", 0)),
+        # Kolone kategorija su cjelobrojne, a rubrika v2 daje i polovine (7.5)
+        # jer DJELIMICNO nosi pola bodova. Zaokruzuje se, ne odsijeca — tacna
+        # vrijednost ostaje u score i u result_json, odakle je ekran i cita.
+        "anamneza": round(float(rezultat.get("anamneza", 0))),
+        "komunikacija": round(float(rezultat.get("komunikacija", 0))),
+        "sigurnost": round(float(rezultat.get("sigurnost", 0))),
         "result_json": json.dumps(rezultat, ensure_ascii=False),
     }
     try:
@@ -489,19 +492,27 @@ def db_otvorene_zalbe():
         return []
 
 
-def db_rijesi_zalbu(attempt_id, status, odgovor, nove_ocjene=None):
-    """Zatvara žalbu ('rijesena'/'odbijena'); opcionalno ispravlja ocjene."""
+def db_rijesi_zalbu(attempt_id, status, odgovor, nove_ocjene=None, novi_kriteriji=None):
+    """Zatvara žalbu ('rijesena'/'odbijena'); opcionalno ispravlja ocjene.
+
+    `novi_kriteriji` dolazi iz žalbe na ocjenu v2 — administrator je preokrenuo
+    sporni kriterij, pa se u zapis mora upisati i nova presuda, ne samo broj.
+    Inače bi polazniku ostala tabela koja proturječi vlastitoj ocjeni.
+    """
     if not db:
         st.error("Baza podataka nije dostupna.")
         return False
     try:
         payload = {"appeal_status": status, "appeal_response": odgovor.strip()}
         if nove_ocjene:
-            a = int(nove_ocjene["anamneza"])
-            k = int(nove_ocjene["komunikacija"])
-            s = int(nove_ocjene["sigurnost"])
+            # Rubrika v2 daje i polovine bodova; ukupna ocjena se racuna iz
+            # tacnih vrijednosti, a kolone kategorija primaju zaokruzene.
+            a = round(float(nove_ocjene["anamneza"]), 1)
+            k = round(float(nove_ocjene["komunikacija"]), 1)
+            s = round(float(nove_ocjene["sigurnost"]), 1)
             ukupna = round(a * 0.4 + k * 0.3 + s * 0.3, 2)
-            payload.update({"anamneza": a, "komunikacija": k, "sigurnost": s, "score": ukupna})
+            payload.update({"anamneza": round(a), "komunikacija": round(k),
+                            "sigurnost": round(s), "score": ukupna})
             r = db.table("attempts").select("result_json").eq("id", attempt_id).execute()
             if r.data and r.data[0].get("result_json"):
                 rez = json.loads(r.data[0]["result_json"])
@@ -509,6 +520,8 @@ def db_rijesi_zalbu(attempt_id, status, odgovor, nove_ocjene=None):
                     "anamneza": a, "komunikacija": k, "sigurnost": s,
                     "ukupna_ocjena": ukupna, "korigovano_od_admina": True,
                 })
+                if novi_kriteriji:
+                    rez["kriteriji"] = novi_kriteriji
                 payload["result_json"] = json.dumps(rez, ensure_ascii=False)
         db.table("attempts").update(payload).eq("id", attempt_id).execute()
         return True

@@ -17,10 +17,65 @@ from baza import (db_neodobreni_korisnici, db_objava_aktivna, db_objava_nova,
                   je_admin, napravi_csv)
 from konfig import (zabiljezi_gresku, ADMIN_EMAIL, CIJENA_IZLAZ_USD, CIJENA_ULAZ_USD,
                     DNEVNI_LIMIT_PORUKA, MAX_POTEZA, SENTRY_AKTIVAN)
+import rubrika
 from motor import generisi_scenarij_iz_pdfa, sljedeci_scenarij_id
 from posta import posalji_email_masovni, posalji_email_odobrenje
 from scenariji import SCENARIJI
 from ui.komponente import prikazi_ocjenu
+
+def _kriteriji_zalbe(z):
+    """Vadi presude po kriterijima iz sačuvane ocjene; None za stare zapise."""
+    sirovo = z.get("result_json")
+    if not sirovo:
+        return None
+    try:
+        rez = json.loads(sirovo) if isinstance(sirovo, str) else sirovo
+    except (ValueError, TypeError):
+        return None
+    return rez.get("kriteriji") or None
+
+
+def _preokreni_kriterije(z, kriteriji):
+    """Administrator preokreće sporni kriterij, ocjena se preračuna sama.
+
+    Žalba je do sada tražila da administrator pogodi tri nova broja. Sada vidi
+    tačno koji je kriterij sporan, promijeni njegov status, a bodove ponovo
+    izračuna ista funkcija koja ih je i dodijelila — pa ispravljena ocjena ne
+    može ispasti iz rubrike.
+    """
+    sc = SCENARIJI.get(z["scenario_id"], {})
+    rub = rubrika.za_scenarij(sc, z["scenario_id"]) if sc else None
+    if not rub:
+        st.caption("Rubrika ovog scenarija više nije dostupna — ocjena se unosi ručno.")
+        return (float(z.get("anamneza") or 0), float(z.get("komunikacija") or 0),
+                float(z.get("sigurnost") or 0), None)
+
+    izmijenjeni = {}
+    with st.expander("Kriteriji — preokrenite sporni", expanded=True):
+        for kat in rub["kategorije"]:
+            st.markdown(f"**{kat['naziv']}**")
+            for kr in kat["kriteriji"]:
+                stari = dict(kriteriji.get(kr["id"]) or {"status": "NE"})
+                c1, c2 = st.columns([3, 1])
+                c1.markdown(
+                    f"<div style='font-size:13px;color:#334155;padding-top:6px'>{kr['tekst']}</div>"
+                    + (f"<div style='font-size:12px;color:#64748b'>„{stari.get('citat')}“</div>"
+                       if stari.get("citat") else ""),
+                    unsafe_allow_html=True)
+                izbor = c2.selectbox(
+                    kr["id"], list(rubrika.STATUSI),
+                    index=list(rubrika.STATUSI).index(stari.get("status", "NE"))
+                    if stari.get("status") in rubrika.STATUSI else 2,
+                    key=f"kr_{z['id']}_{kr['id']}", label_visibility="collapsed")
+                stari["status"] = izbor
+                izmijenjeni[kr["id"]] = stari
+
+    radnje = [r.get("id") for r in (json.loads(z["result_json"]).get("radnje") or [])
+              if isinstance(r, dict)] if isinstance(z.get("result_json"), str) else []
+    bodovi = rubrika.izracunaj(rub, izmijenjeni, radnje)
+    return (bodovi.get("anamneza", 0), bodovi.get("komunikacija", 0),
+            bodovi.get("sigurnost", 0), izmijenjeni)
+
 
 def prikazi_admin():
     # Druga brava: navigacija već skriva Admin bez uloge, ali stranica se ne
@@ -271,12 +326,21 @@ def prikazi_admin():
                 else:
                     st.caption("Transkript nije sačuvan za ovaj pokušaj.")
 
+                kriteriji = _kriteriji_zalbe(z)
+                novi_kriteriji = None
+
+                if kriteriji:
+                    a, kk, s, novi_kriteriji = _preokreni_kriterije(z, kriteriji)
+                    st.caption(f"Nova ukupna ocjena: **{a*0.4 + kk*0.3 + s*0.3:.1f}/10** "
+                               f"— A {a:g} · K {kk:g} · S {s:g}, preračunato iz kriterija")
+
                 with st.form(f"zalba_{z['id']}"):
-                    c1, c2, c3 = st.columns(3)
-                    a = c1.number_input("Anamneza", 0, 10, int(z.get("anamneza") or 0))
-                    kk = c2.number_input("Komunikacija", 0, 10, int(z.get("komunikacija") or 0))
-                    s = c3.number_input("Sigurnost", 0, 10, int(z.get("sigurnost") or 0))
-                    st.caption(f"Nova ukupna ocjena: **{a*0.4 + kk*0.3 + s*0.3:.1f}/10** (0.4·A + 0.3·K + 0.3·S)")
+                    if not kriteriji:
+                        c1, c2, c3 = st.columns(3)
+                        a = c1.number_input("Anamneza", 0, 10, int(z.get("anamneza") or 0))
+                        kk = c2.number_input("Komunikacija", 0, 10, int(z.get("komunikacija") or 0))
+                        s = c3.number_input("Sigurnost", 0, 10, int(z.get("sigurnost") or 0))
+                        st.caption(f"Nova ukupna ocjena: **{a*0.4 + kk*0.3 + s*0.3:.1f}/10** (0.4·A + 0.3·K + 0.3·S)")
                     odgovor = st.text_area("Odgovor korisniku (obavezno)", placeholder="Obrazloženje odluke...")
                     cb1, cb2 = st.columns(2)
                     ispravi = cb1.form_submit_button("Ispravi ocjenu i riješi", type="primary", use_container_width=True)
@@ -288,7 +352,8 @@ def prikazi_admin():
                     else:
                         if ispravi:
                             ok = db_rijesi_zalbu(z["id"], "rijesena", odgovor,
-                                                 {"anamneza": a, "komunikacija": kk, "sigurnost": s})
+                                                 {"anamneza": a, "komunikacija": kk, "sigurnost": s},
+                                                 novi_kriteriji)
                             poruka = f"Žalba korisnika {ime_z} riješena — ocjena ispravljena."
                         else:
                             ok = db_rijesi_zalbu(z["id"], "odbijena", odgovor)

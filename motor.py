@@ -7,11 +7,12 @@ import streamlit as st
 from konfig import (JEZIK_PRAVILO, MAX_POTEZA, zabiljezi_gresku, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
                     ai)
 from baza import db_log_upotrebu, db_spremi
-from ocjena import izvuci_json, provjeri_ocjenu
+from ocjena import izvuci_json, provjeri_kriterije, provjeri_ocjenu
+from rubrika import shema_alata, za_scenarij as rubrika_za_scenarij
 from stanje import izdvoji_stanje, sazetak_za_evaluatora
 from scenariji import SCENARIJI
-from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM, GENERATOR_SISTEM,
-                       PACIJENT_PRIRUCNIK)
+from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM, EVALUATOR_SISTEM_V2,
+                       GENERATOR_SISTEM, PACIJENT_PRIRUCNIK)
 
 PERSONA_OPISI = {
     "pricljivost": "Pričljivost: {v} od 5",
@@ -171,18 +172,68 @@ Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, tačno ovog
     return r.content[0].text
 
 
+def pozovi_evaluatora_v2(transkript, sc, rub, broj_poteza=MAX_POTEZA, stanja=None):
+    """Ocjenjivač v2 — presuda po kriteriju kroz tool use.
+
+    Shema alata nabraja svaki kriterij poimenično, pa model ne može preskočiti
+    kriterij, izmisliti novi ni vratiti pokvaren JSON. Bodove ne traži uopšte —
+    računa ih rubrika.izracunaj() u Pythonu.
+    """
+    sazetak = sazetak_za_evaluatora(stanja, sc.get("cinjenice"))
+    prompt = f"""Ocijeni savjetovanje farmaceuta u apoteci.
+
+Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}
+Crvene zastavice: {sc['crvene_zastavice']}
+Očekivano savjetovanje: {sc['ocekivano']}
+
+OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {broj_poteza} poteza (poruka). Vidi pravilo 3.
+
+TRANSKRIPT:
+{transkript}
+
+{sazetak}
+
+Presudi svaki kriterij alatom "ocijeni". Svaki DA i DJELIMICNO nosi doslovan citat."""
+
+    alat = {
+        "name": "ocijeni",
+        "description": "Presuda po svakom kriteriju rubrike, s dokazom iz transkripta.",
+        "input_schema": shema_alata(rub),
+    }
+    r = ai.messages.create(
+        model=MODEL_EVALUATOR, max_tokens=4000, temperature=0,
+        system=EVALUATOR_SISTEM_V2,
+        tools=[alat],
+        tool_choice={"type": "tool", "name": "ocijeni"},
+        messages=[{"role": "user", "content": prompt}],
+    )
+    db_log_upotrebu("evaluacija", st.session_state.get("odabrani_scenarij", ""),
+                    r.usage.input_tokens, r.usage.output_tokens)
+    for blok in r.content:
+        if blok.type == "tool_use":
+            return blok.input
+    return None
+
+
 def pokreni_evaluaciju(stanje, sc, sc_id):
     transkript = "\n".join(
         f"{'Farmaceut' if p['role'] == 'user' else 'Pacijent'}: {p['content']}"
         for p in stanje["poruke_prikaz"]
     )
     stanja = stanje.get("stanja") or []
-    with st.spinner("Analizira savjetovanje..."):
-        json_tekst = pozovi_evaluatora(transkript, sc, MAX_POTEZA, stanja)
+    rub = rubrika_za_scenarij(sc, sc_id)
 
-    rezultat = izvuci_json(json_tekst)
+    with st.spinner("Analizira savjetovanje..."):
+        if rub:
+            sirovo = pozovi_evaluatora_v2(transkript, sc, rub, MAX_POTEZA, stanja)
+            rezultat = provjeri_kriterije(sirovo, transkript, rub) if sirovo else None
+        else:
+            # Scenarij bez rubrike koju umijemo raščlaniti — stari put.
+            rezultat = izvuci_json(pozovi_evaluatora(transkript, sc, MAX_POTEZA, stanja))
+            if rezultat:
+                rezultat = provjeri_ocjenu(rezultat, transkript)
+
     if rezultat:
-        rezultat = provjeri_ocjenu(rezultat, transkript)
         stanje["ocjena"] = rezultat
         stanje["zavrseno"] = True
         db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript,

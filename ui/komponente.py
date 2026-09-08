@@ -69,6 +69,82 @@ def prikazi_ishod(stanja):
         unsafe_allow_html=True)
 
 
+BOJE_STATUSA = {
+    "DA":         ("#16a34a", "#dcfce7", "DA"),
+    "DJELIMICNO": ("#b45309", "#fef3c7", "DJELIMIČNO"),
+    "NE":         ("#dc2626", "#fee2e2", "NE"),
+}
+
+REDOSLIJED_KATEGORIJA = ("anamneza", "komunikacija", "sigurnost")
+
+
+def prikazi_kriterije(r):
+    """Tabela: kriterij, status i doslovan citat iz vlastitog razgovora.
+
+    Ovo je jezgro ocjenjivača v2 — polaznik prvi put vidi ZAŠTO je dobio
+    ocjenu, a ne samo koliku. Prikazuje se samo za ocjene v2; stariji zapisi
+    u bazi nemaju kriterije i idu kroz stari prikaz ispod.
+    """
+    kriteriji = r.get("kriteriji")
+    if not kriteriji:
+        return
+
+    st.markdown("#### Ocjena po kriterijima")
+    st.caption("Svaki priznat kriterij nosi citat iz vašeg razgovora. Ako mislite da je "
+               "neki kriterij pogrešno ocijenjen, uložite žalbu ispod — administrator vidi "
+               "tačno koji je sporan.")
+
+    po_kategoriji = {}
+    for kid, k in kriteriji.items():
+        po_kategoriji.setdefault(k.get("kategorija", ""), []).append((kid, k))
+
+    kazne = {}
+    for kz in r.get("kazne_primijenjene") or []:
+        kazne.setdefault(kz.get("kategorija", ""), []).append(kz)
+
+    for kat_id in REDOSLIJED_KATEGORIJA:
+        stavke = po_kategoriji.get(kat_id)
+        if not stavke:
+            continue
+        stavke.sort(key=lambda p: p[0])
+        naziv = stavke[0][1].get("naziv_kategorije", kat_id.capitalize())
+
+        redovi = []
+        for _, k in stavke:
+            boja, pozadina, oznaka = BOJE_STATUSA.get(k.get("status", "NE"), BOJE_STATUSA["NE"])
+            citat = html.escape(k.get("citat") or "")
+            obrazlozenje = html.escape(k.get("obrazlozenje") or "")
+            # Sve u jednom redu i bez uvlaka: Streamlit uvucen HTML prikaze kao
+            # blok koda umjesto da ga iscrta.
+            dokaz = (f'<div style="color:#475569;font-size:13px;margin-top:6px;'
+                     f'border-left:3px solid {boja}44;padding-left:10px">„{citat}“</div>'
+                     if citat else "")
+            napomena = (f'<div style="color:#64748b;font-size:13px;margin-top:6px">'
+                        f'{obrazlozenje}</div>' if obrazlozenje else "")
+            redovi.append(
+                '<div style="display:flex;gap:12px;padding:12px 0;border-top:1px solid #eef2f7">'
+                f'<div style="flex:0 0 96px"><span style="background:{pozadina};color:{boja};'
+                'font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;'
+                f'white-space:nowrap">{oznaka}</span></div>'
+                '<div style="flex:1;min-width:0">'
+                f'<div style="color:#1e293b;font-size:14px">{html.escape(k.get("tekst", ""))}</div>'
+                f'{dokaz}{napomena}</div>'
+                '<div style="flex:0 0 44px;text-align:right;color:#94a3b8;font-size:13px">'
+                f'{k.get("bodovi", 0):g}</div>'
+                '</div>')
+
+        st.markdown(
+            '<div style="background:white;border-radius:14px;padding:6px 20px 16px;'
+            'margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,0.06)">'
+            '<div style="font-weight:700;color:#1e293b;padding:14px 0 2px">'
+            f'{naziv} · {r.get(kat_id, 0)}/10</div>'
+            + "".join(redovi) + '</div>', unsafe_allow_html=True)
+
+        for kz in kazne.get(kat_id, []):
+            st.warning(f"Kazna iz rubrike: **{kz.get('opis', '')}** — "
+                       f"ocjena ove kategorije ograničena je na {kz.get('max', 0):g}/10.")
+
+
 def prikazi_ocjenu(r, stanja=None):
     ukupno = float(r.get("ukupna_ocjena", 0))
     boja = "#22c55e" if ukupno >= 7 else ("#f59e0b" if ukupno >= 5 else "#ef4444")
@@ -94,6 +170,8 @@ def prikazi_ocjenu(r, stanja=None):
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
+    prikazi_kriterije(r)
+
     if r.get("pohvale"):
         st.markdown("#### Šta ste uradili dobro")
         for p in r["pohvale"]:
@@ -118,7 +196,8 @@ def prikazi_ocjenu(r, stanja=None):
                 f"Pacijent: {p.get('reakcija_pacijenta','')}"
             )
 
-    nije = r.get("nije_pitano") or r.get("propustena_pitanja")
+    # Kod ocjene v2 propusti su vec u tabeli kriterija — ne ponavljaju se.
+    nije = None if r.get("kriteriji") else (r.get("nije_pitano") or r.get("propustena_pitanja"))
     if nije:
         st.markdown("#### Niste pitali")
         for p in nije:

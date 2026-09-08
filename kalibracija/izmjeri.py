@@ -18,9 +18,11 @@ import os
 import sys
 
 sys.path.insert(0, os.getcwd())
+import rubrika                                          # noqa: E402
 from konfig import MAX_POTEZA, MODEL_EVALUATOR          # noqa: E402
-from ocjena import _normalizuj, provjeri_ocjenu         # noqa: E402
-from promptovi import EVALUATOR_SHEMA, EVALUATOR_SISTEM  # noqa: E402
+from ocjena import _normalizuj, provjeri_kriterije, provjeri_ocjenu  # noqa: E402
+from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM,  # noqa: E402
+                       EVALUATOR_SISTEM_V2)
 
 # Teme koje se u ocjenama najčešće pogrešno prijave kao "nije pitao".
 # Izrazi su namjerno uski — "preparat" ili "dodat" hvataju i sasvim legitimne
@@ -62,13 +64,63 @@ def sumnjive_optuzbe(rezultat, transkript):
         n.get("pitanje", "") if isinstance(n, dict) else str(n)
         for n in (rezultat.get("nije_pitano") or rezultat.get("propustena_pitanja") or [])))
     # Ono što je evaluator priznao kao postavljeno pitanje nije lažna optužba.
+    # v1 to drži u "pitano_ali_neodgovoreno", v2 u kriterijima koji nisu NE.
     priznato = _normalizuj(" ".join(
-        (p.get("pitanje", "") + " " + p.get("citat_farmaceuta", ""))
-        for p in (rezultat.get("pitano_ali_neodgovoreno") or []) if isinstance(p, dict)))
+        [(p.get("pitanje", "") + " " + p.get("citat_farmaceuta", ""))
+         for p in (rezultat.get("pitano_ali_neodgovoreno") or []) if isinstance(p, dict)]
+        + [(k.get("tekst", "") + " " + k.get("citat", ""))
+           for k in (rezultat.get("kriteriji") or {}).values()
+           if isinstance(k, dict) and k.get("status") != "NE"]))
     return [tema for tema, izrazi in OKIDACI.items()
             if any(i in pitanja for i in izrazi)
             and any(i in nije for i in izrazi)
             and not any(i in priznato for i in izrazi)]
+
+
+def ocijeni_v2(ai, sc, s, rub):
+    """Poziva ocjenjivač v2 — presuda po kriteriju kroz tool use."""
+    poruka = (f"Ocijeni savjetovanje farmaceuta u apoteci.\n\n"
+              f"Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}\n"
+              f"Crvene zastavice: {sc['crvene_zastavice']}\n"
+              f"Očekivano savjetovanje: {sc['ocekivano']}\n\n"
+              f"OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {MAX_POTEZA} poteza "
+              f"(poruka). Vidi pravilo 3.\n\nTRANSKRIPT:\n{s['transkript']}\n\n"
+              f"Presudi svaki kriterij alatom \"ocijeni\". Svaki DA i DJELIMICNO nosi "
+              f"doslovan citat.")
+    r = ai.messages.create(
+        model=MODEL_EVALUATOR, max_tokens=4000, temperature=0,
+        system=EVALUATOR_SISTEM_V2,
+        tools=[{"name": "ocijeni",
+                "description": "Presuda po svakom kriteriju rubrike, s dokazom iz transkripta.",
+                "input_schema": rubrika.shema_alata(rub)}],
+        tool_choice={"type": "tool", "name": "ocijeni"},
+        messages=[{"role": "user", "content": poruka}],
+    )
+    for blok in r.content:
+        if blok.type == "tool_use":
+            return provjeri_kriterije(blok.input, s["transkript"], rub)
+    sys.exit("Model nije pozvao alat — provjeri shemu.")
+
+
+def _ispisi(s, rez):
+    ref = s["referenca"]
+    print(f"\n{s['scenarij']} ({s['datum']})")
+    print(f"  {'kategorija':<14} {'referenca':>10} {'evaluator':>10} {'razlika':>9}")
+    for k in ("anamneza", "komunikacija", "sigurnost", "ukupno"):
+        dobio = rez.get("ukupna_ocjena") if k == "ukupno" else rez.get(k, 0)
+        print(f"  {k:<14} {ref[k]:>10} {dobio:>10} {abs(float(dobio) - float(ref[k])):>9.1f}")
+
+    odbaceno = len(rez.get("odbaceno", []))
+    if odbaceno:
+        print(f"  odbačeno tvrdnji bez dokaza: {odbaceno}")
+    for kz in rez.get("kazne_primijenjene") or []:
+        print(f"  kazna: {kz['opis']} -> {kz['kategorija']} max {kz['max']:g}")
+
+
+def _zbroji(zbir, rez, ref):
+    for k in ("anamneza", "komunikacija", "sigurnost", "ukupno"):
+        dobio = rez.get("ukupna_ocjena") if k == "ukupno" else rez.get(k, 0)
+        zbir[k] += abs(float(dobio) - float(ref[k]))
 
 
 def main():
@@ -86,8 +138,23 @@ def main():
     zbir = {"anamneza": 0.0, "komunikacija": 0.0, "sigurnost": 0.0, "ukupno": 0.0}
     sve_sumnje = []
 
+    v1 = "--v1" in sys.argv
+    print("Ocjenjivač: " + ("v1 (slobodan JSON)" if v1 else "v2 (kriteriji kroz tool use)"))
+
     for s in stavke:
         sc = scenarij(s["scenarij"])
+        rub = None if v1 else rubrika.za_scenarij(sc, s["scenarij"])
+        if rub:
+            rez = ocijeni_v2(ai, sc, s, rub)
+            _ispisi(s, rez)
+            _zbroji(zbir, rez, s["referenca"])
+            sumnje = sumnjive_optuzbe(rez, s["transkript"])
+            if sumnje:
+                sve_sumnje.append((s["scenarij"], sumnje))
+                for tema in sumnje:
+                    print(f"  SUMNJIVO: '{tema}' prijavljeno kao nepitano, a jeste pitano")
+            continue
+
         poruka = (f"Ocijeni savjetovanje farmaceuta u apoteci.\n\n"
                   f"Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}\n"
                   f"Crvene zastavice: {sc['crvene_zastavice']}\n"
@@ -105,18 +172,8 @@ def main():
         rez = json.loads(tekst[tekst.find("{"):tekst.rfind("}") + 1])
         rez = provjeri_ocjenu(rez, s["transkript"])
 
-        ref = s["referenca"]
-        print(f"\n{s['scenarij']} ({s['datum']})")
-        print(f"  {'kategorija':<14} {'referenca':>10} {'evaluator':>10} {'razlika':>9}")
-        for k in ("anamneza", "komunikacija", "sigurnost", "ukupno"):
-            dobio = rez.get("ukupna_ocjena") if k == "ukupno" else rez.get(k, 0)
-            razlika = abs(float(dobio) - float(ref[k]))
-            zbir[k] += razlika
-            print(f"  {k:<14} {ref[k]:>10} {dobio:>10} {razlika:>9.1f}")
-
-        odbaceno = len(rez.get("odbaceno", []))
-        if odbaceno:
-            print(f"  odbačeno tvrdnji bez dokaza: {odbaceno}")
+        _ispisi(s, rez)
+        _zbroji(zbir, rez, s["referenca"])
         sumnje = sumnjive_optuzbe(rez, s["transkript"])
         if sumnje:
             sve_sumnje.append((s["scenarij"], sumnje))

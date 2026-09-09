@@ -29,8 +29,8 @@ from motor import (pokreni_evaluaciju, pozovi_pacijenta_stream,  # noqa: E402
                    zatvori_razgovor)
 from scenariji import SCENARIJI  # noqa: E402
 from ui.admin import prikazi_admin  # noqa: E402
-from ui.komponente import (prikazi_ocjenu, prikazi_pravila,  # noqa: E402
-                           prikazi_repliku)
+from ui.komponente import (prikazi_epilog, prikazi_ocjenu,  # noqa: E402
+                           prikazi_pravila, prikazi_repliku)
 from ui.ljestvica import prikazi_leaderboard  # noqa: E402
 from ui.prijava import prikazi_login  # noqa: E402
 from ui.rezultati import prikazi_gdpr_brisanje, prikazi_moje_rezultate  # noqa: E402
@@ -281,6 +281,7 @@ if vec_uradjen:
         prikazi_ocjenu(ocjena_data, stanje.get("stanja"))
     else:
         st.success("Scenarij uspješno završen. Ocjena nije dostupna.")
+    prikazi_epilog(sc)
     st.stop()
 
 # ─── Pravila prije početka ───────────────────────────────────────────────────
@@ -458,3 +459,4 @@ if not stanje["zavrseno"] and stanje["broj_poteza"] >= 2:
 
 if stanje["zavrseno"] and stanje["ocjena"]:
     prikazi_ocjenu(stanje["ocjena"], stanje.get("stanja"))
+    prikazi_epilog(sc)

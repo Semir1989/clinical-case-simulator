@@ -721,6 +721,8 @@ def _ucitaj_db_scenarije():
                 "cinjenice": red.get("cinjenice") or None,
                 "otpor": red.get("otpor") or None,
                 "vidljivi_znakovi": red.get("vidljivi_znakovi") or "",
+                "epilog": red.get("epilog") or "",
+                "uzoran_razgovor": red.get("uzoran_razgovor") or "",
                 "aktivan": bool(red.get("active", False)),
                 "_iz_baze": True,
             }

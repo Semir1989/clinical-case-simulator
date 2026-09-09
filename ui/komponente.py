@@ -69,6 +69,40 @@ def prikazi_ishod(stanja):
         unsafe_allow_html=True)
 
 
+def prikazi_epilog(sc):
+    """Epilog i uzoran razgovor — prikazuju se tek poslije ocjene.
+
+    Oba teksta su generisana jednom po scenariju i spremljena uz njega, pa ovo
+    ne košta nijedan API poziv. Prikazuju se zatvoreni: ocjena je ono zbog čega
+    je polaznik došao, ovo je ono što ostane poslije.
+    """
+    epilog = (sc or {}).get("epilog")
+    uzoran = (sc or {}).get("uzoran_razgovor")
+    if not epilog and not uzoran:
+        return
+
+    st.markdown("#### Poslije apoteke")
+    if epilog:
+        with st.expander("Šta se desilo s pacijentom", expanded=False):
+            st.markdown(epilog)
+    if uzoran:
+        with st.expander("Kako je razgovor mogao izgledati", expanded=False):
+            st.caption("Nije jedini tačan razgovor — jedan dobar, da se vidi kako se dolazi "
+                       "do onoga što pacijent prešućuje.")
+            for red in str(uzoran).split("\n"):
+                red = red.strip()
+                if not red:
+                    continue
+                if red.lower().startswith("farmaceut:"):
+                    with st.chat_message("user"):
+                        st.markdown(red.split(":", 1)[1].strip())
+                elif red.lower().startswith("pacijent:"):
+                    with st.chat_message("assistant"):
+                        st.markdown(red.split(":", 1)[1].strip())
+                else:
+                    st.caption(red)
+
+
 def prikazi_pravila(je_ispit, max_poteza):
     """Ekran s pravilima prije početka. Vraća True kad polaznik klikne „Počni“.
 

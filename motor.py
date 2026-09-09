@@ -11,8 +11,9 @@ from ocjena import izvuci_json, provjeri_kriterije, provjeri_ocjenu
 from rubrika import shema_alata, za_scenarij as rubrika_za_scenarij
 from stanje import izdvoji_stanje, sazetak_za_evaluatora
 from scenariji import SCENARIJI
-from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM, EVALUATOR_SISTEM_V2,
-                       GENERATOR_SISTEM, PACIJENT_PRIRUCNIK)
+from promptovi import (EPILOG_SHEMA, EPILOG_SISTEM, EVALUATOR_SHEMA,
+                       EVALUATOR_SISTEM, EVALUATOR_SISTEM_V2, GENERATOR_SISTEM,
+                       PACIJENT_PRIRUCNIK)
 
 PERSONA_OPISI = {
     "pricljivost": "Pričljivost: {v} od 5",
@@ -272,6 +273,39 @@ def pokreni_evaluaciju(stanje, sc, sc_id, mode=ISPIT):
     else:
         st.error("Greška pri analizi ocjene. Pokušaj ponovo.")
         stanje["zavrseno"] = False
+
+
+def generisi_epilog(sc):
+    """Epilog i uzoran razgovor za scenarij — jedan poziv, jednom po scenariju.
+
+    Generiše ih administrator i spremaju se uz scenarij, pa polaznika ne
+    koštaju ništa: tekst je isti za sve i nema razloga da se pravi iznova.
+    Vraća (epilog, uzoran_razgovor) ili (None, None).
+    """
+    prompt = f"""Scenarij: {sc.get('naziv', '')}
+Pacijent: {sc.get('ime', '')}, {sc.get('godine', '')} god.
+Razlog posjete: {sc.get('tegoba', '')}
+Terapija: {sc.get('terapija', '')}
+Šta pacijent prešućuje: {sc.get('skriveni_detalji', '')}
+Crvene zastavice: {sc.get('crvene_zastavice', '')}
+Očekivano savjetovanje: {sc.get('ocekivano', '')}
+Klinička pozadina: {sc.get('obrazlozenje', '')}
+
+Vrati ISKLJUČIVO validan JSON bez teksta prije ili poslije, tačno ovog oblika:
+{EPILOG_SHEMA}"""
+    try:
+        r = ai.messages.create(
+            model=MODEL_GENERATOR, max_tokens=2000, temperature=0.4,
+            system=EPILOG_SISTEM,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return None, None
+
+    db_log_upotrebu("epilog", sc.get("id", ""), r.usage.input_tokens, r.usage.output_tokens)
+    podaci = izvuci_json(r.content[0].text) or {}
+    return podaci.get("epilog"), podaci.get("uzoran_razgovor")
 
 
 def generisi_scenarij_iz_pdfa(pdf_bytes, tezina, smjernice):

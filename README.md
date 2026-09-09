@@ -25,6 +25,7 @@ Do septembra 2026. sve je živjelo u jednom fajlu od 3.281 linije. Sada:
 | `promptovi.py` | Sistemski promptovi za pacijenta, ocjenjivača i generator |
 | `motor.py` | Pozivi prema modelu |
 | `ocjena.py` | Provjera dokaza i izračun ocjene — čist Python, bez Streamlita |
+| `rubrika.py` | Rubrika v2: kriteriji, kazne, izračun bodova, shema alata — čist Python |
 | `stanje.py` | Skriveno stanje pacijenta i didaskalije — takođe čist Python |
 | `scenariji.py` | Ugrađeni scenariji + oni iz baze |
 | `demo.py` | Besplatan demo slučaj, unaprijed napisan, bez API poziva |
@@ -37,7 +38,7 @@ Do septembra 2026. sve je živjelo u jednom fajlu od 3.281 linije. Sada:
 Redoslijed uvoza je jednosmjeran i nema kružnih zavisnosti:
 
 ```
-konfig → baza, posta → promptovi → ocjena, stanje → scenariji → motor → ui → app
+konfig → baza, posta → promptovi → ocjena, stanje, rubrika → scenariji → motor → ui → app
 ```
 
 `konfig.py` ne uvozi nijedan drugi modul projekta. Ako se to promijeni, kružne
@@ -67,6 +68,7 @@ Na Streamlit Cloudu isti ključevi idu u **Settings → Secrets**, ne u `.env`.
 
 ```bash
 venv/Scripts/python test_ocjena.py     # provjera dokaza i izračun ocjene
+venv/Scripts/python test_rubrika.py    # rubrika v2: parsiranje, bodovi, kazne
 venv/Scripts/python test_lozinke.py    # bcrypt migracija, zaključavanje, uloge
 venv/Scripts/python test_prompt.py     # gradnja prompta, persona, povratak na stari tekst
 venv/Scripts/python test_stanje.py     # parsiranje skrivenog stanja i didaskalija
@@ -120,6 +122,7 @@ create table attempts (
   id              uuid primary key default gen_random_uuid(),
   user_email      text not null,
   scenario_id     text not null,
+  mode            text not null default 'ispit',  -- ispit | vjezba; ljestvica broji samo ispite
   score           numeric not null,
   anamneza        integer,
   komunikacija    integer,
@@ -131,6 +134,25 @@ create table attempts (
   appeal_text     text,
   appeal_response text,
   completed_at    timestamptz default now()
+);
+
+-- Razgovor u toku. Bez ovoga osvjezavanje stranice brise razgovor, a tajmer
+-- nastavlja trositi poteze. Red se brise cim je pokusaj ocijenjen.
+create table attempts_progress (
+  id                   bigint generated always as identity primary key,
+  user_email           text not null,
+  scenario_id          text not null,
+  mode                 text not null default 'ispit',
+  broj_poteza          integer not null default 0,
+  izgubljeno_ukupno    integer not null default 0,
+  poruke_api           jsonb not null default '[]',
+  poruke_prikaz        jsonb not null default '[]',
+  stanja               jsonb not null default '[]',
+  zadnje_stanje        jsonb,
+  zadnji_potez_vrijeme timestamptz not null default now(),
+  zapoceto_at          timestamptz not null default now(),
+  azurirano_at         timestamptz not null default now(),
+  unique (user_email, scenario_id, mode)
 );
 
 -- Scenariji iz admin panela. Nadjačavaju ugrađene ako dijele isti id.
@@ -150,6 +172,8 @@ create table scenarios (
   ocekivano        text,
   pocetna_poruka   text,
   rubrika          text,
+  epilog           text,        -- sta se s pacijentom desilo; generise admin, jednom
+  uzoran_razgovor  text,        -- kako je razgovor mogao izgledati; generise admin, jednom
   active           boolean default false,
   created_at       timestamptz default now()
 );
@@ -158,7 +182,7 @@ create table scenarios (
 create table usage_log (
   id          bigserial primary key,
   user_email  text,
-  event       text,        -- start | poruka | evaluacija | generisanje_scenarija
+  event       text,        -- start | poruka | evaluacija | epilog | generisanje_scenarija
   scenario_id text,
   tokens_in   integer default 0,
   tokens_out  integer default 0,

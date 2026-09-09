@@ -18,7 +18,7 @@ from baza import (db_neodobreni_korisnici, db_objava_aktivna, db_objava_nova,
 from konfig import (zabiljezi_gresku, ADMIN_EMAIL, CIJENA_IZLAZ_USD, CIJENA_ULAZ_USD,
                     DNEVNI_LIMIT_PORUKA, MAX_POTEZA, SENTRY_AKTIVAN)
 import rubrika
-from motor import generisi_scenarij_iz_pdfa, sljedeci_scenarij_id
+from motor import generisi_epilog, generisi_scenarij_iz_pdfa, sljedeci_scenarij_id
 from posta import posalji_email_masovni, posalji_email_odobrenje
 from scenariji import SCENARIJI
 from ui.komponente import prikazi_ocjenu
@@ -566,6 +566,25 @@ def prikazi_admin():
             </div>""", unsafe_allow_html=True)
 
             if iz_baze:
+                # Epilog i uzoran razgovor se prave jednom po scenariju i
+                # spremaju uz njega — polaznika zato ne kostaju nista.
+                ima_epilog = bool(s.get("epilog") and s.get("uzoran_razgovor"))
+                oznaka = "Epilog: napravljen" if ima_epilog else "Epilog: nedostaje"
+                ce1, ce2 = st.columns([2, 1])
+                ce1.caption(oznaka)
+                if ce2.button("Generiši epilog" if not ima_epilog else "Napravi ponovo",
+                              key=f"sc_epi_{sid}", use_container_width=True):
+                    with st.spinner("Piše epilog i uzoran razgovor..."):
+                        epilog, uzoran = generisi_epilog({**s, "id": sid})
+                    if epilog and uzoran:
+                        if db_scenarij_spremi(sid, {"epilog": epilog,
+                                                    "uzoran_razgovor": uzoran}):
+                            st.session_state["admin_flash"] = (
+                                f"Epilog i uzoran razgovor spremljeni za '{s.get('naziv', sid)}'.")
+                            st.rerun()
+                    else:
+                        st.error("Model nije vratio ispravan tekst. Pokušajte ponovo.")
+
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     if st.button("Uredi", key=f"sc_uredi_{sid}", use_container_width=True):

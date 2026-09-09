@@ -206,38 +206,62 @@ def db_login(email, lozinka):
         return None, f"Greška: {e}"
 
 
-def db_zavrseni_scenariji(email):
-    """Svi završeni scenariji jednim upitom.
+ISPIT = "ispit"
+VJEZBA = "vjezba"
 
-    Lista scenarija je ranije zvala db_vec_uradio dvaput po scenariju, a
-    Streamlit prerenderuje pri svakoj interakciji — uz 15 scenarija to je 30
-    upita po kliku.
+
+def db_zavrseni_scenariji(email):
+    """Scenariji koje je korisnik ISPITNO završio — ti se više ne mogu igrati.
+
+    Vježbe se namjerno ne broje: vježba je neograničena i ne smije zaključati
+    scenarij. Lista scenarija je ranije zvala db_vec_uradio dvaput po
+    scenariju, a Streamlit prerenderuje pri svakoj interakciji — uz 15
+    scenarija to je 30 upita po kliku.
     """
     if not db:
         return set()
     try:
-        r = db.table("attempts").select("scenario_id").eq("user_email", email).execute()
+        r = (db.table("attempts").select("scenario_id")
+             .eq("user_email", email).eq("mode", ISPIT).execute())
         return {a["scenario_id"] for a in (r.data or [])}
     except Exception:
         return set()
 
 
+def db_broj_vjezbi(email):
+    """Koliko je puta korisnik vježbao svaki scenarij — {scenario_id: broj}."""
+    if not db:
+        return {}
+    try:
+        r = (db.table("attempts").select("scenario_id")
+             .eq("user_email", email).eq("mode", VJEZBA).execute())
+        brojac = defaultdict(int)
+        for a in (r.data or []):
+            brojac[a["scenario_id"]] += 1
+        return dict(brojac)
+    except Exception:
+        return {}
+
+
 def db_vec_uradio(email, scenario_id):
+    """Je li scenarij ISPITNO odigran. Vježbe ne zaključavaju scenarij."""
     if not db:
         return False
     try:
-        r = db.table("attempts").select("id").eq("user_email", email).eq("scenario_id", scenario_id).execute()
+        r = (db.table("attempts").select("id").eq("user_email", email)
+             .eq("scenario_id", scenario_id).eq("mode", ISPIT).execute())
         return len(r.data) > 0
     except Exception:
         return False
 
 
-def db_spremi(email, scenario_id, rezultat, transkript="", stanja=None):
+def db_spremi(email, scenario_id, rezultat, transkript="", stanja=None, mode=ISPIT):
     if not db:
         return
     red = {
         "user_email": email,
         "scenario_id": scenario_id,
+        "mode": mode,
         "score": float(rezultat.get("ukupna_ocjena", 0)),
         # Kolone kategorija su cjelobrojne, a rubrika v2 daje i polovine (7.5)
         # jer DJELIMICNO nosi pola bodova. Zaokruzuje se, ne odsijeca — tacna
@@ -259,20 +283,49 @@ def db_spremi(email, scenario_id, rezultat, transkript="", stanja=None):
         except Exception:
             try:
                 db.table("attempts").insert(red).execute()
-            except Exception as e:
-                zabiljezi_gresku(e)
+            except Exception:
+                try:
+                    # Zadnja odbrana: baza bez kolone 'mode'. Ocjena je vaznija
+                    # od podatka je li bila vjezba ili ispit.
+                    db.table("attempts").insert(
+                        {k: v for k, v in red.items() if k != "mode"}).execute()
+                except Exception as e:
+                    zabiljezi_gresku(e)
 
 
-def db_dohvati_ocjenu(email, scenario_id):
+def db_dohvati_ocjenu(email, scenario_id, mode=ISPIT):
+    """Ocjena za scenarij. Podrazumijevano ispitna — vježbe se ne prikazuju
+    na ekranu završenog scenarija, jer ih može biti više."""
     if not db:
         return None
     try:
-        r = db.table("attempts").select("result_json").eq("user_email", email).eq("scenario_id", scenario_id).execute()
+        r = (db.table("attempts").select("result_json").eq("user_email", email)
+             .eq("scenario_id", scenario_id).eq("mode", mode)
+             .order("completed_at", desc=True).execute())
         if r.data and r.data[0].get("result_json"):
             return json.loads(r.data[0]["result_json"])
     except Exception:
         pass
     return None
+
+
+def db_dohvati_transkript(email, scenario_id, mode=ISPIT):
+    """Transkript završenog pokušaja.
+
+    Ekran završenog scenarija je transkript čitao iz sesije, pa je poslije
+    odjave i ponovne prijave ostajao prazan.
+    """
+    if not db:
+        return ""
+    try:
+        r = (db.table("attempts").select("transcript").eq("user_email", email)
+             .eq("scenario_id", scenario_id).eq("mode", mode)
+             .order("completed_at", desc=True).execute())
+        if r.data:
+            return r.data[0].get("transcript") or ""
+    except Exception:
+        pass
+    return ""
 
 
 def db_moji_rezultati(email):
@@ -283,6 +336,69 @@ def db_moji_rezultati(email):
         return r.data
     except Exception:
         return []
+
+
+# ─── Trajnost razgovora ──────────────────────────────────────────────────────
+# Razgovor je do sada zivio samo u st.session_state. Osvjezavanje stranice na
+# mobitelu ga je brisalo, a tajmer je nastavljao oduzimati poteze — polaznik bi
+# se vratio u prazan ekran s potrosenim pokusajima. Sada se stanje upisuje
+# poslije svakog poteza i vraca pri ulasku u scenarij.
+
+def db_ucitaj_napredak(email, scenario_id, mode=ISPIT):
+    """Vraća sačuvani razgovor u toku ili None."""
+    if not db:
+        return None
+    try:
+        r = (db.table("attempts_progress").select("*")
+             .eq("user_email", email).eq("scenario_id", scenario_id)
+             .eq("mode", mode).execute())
+        if not r.data:
+            return None
+        red = r.data[0]
+        return {
+            "poruke_api": red.get("poruke_api") or [],
+            "poruke_prikaz": red.get("poruke_prikaz") or [],
+            "stanja": red.get("stanja") or [],
+            "zadnje_stanje": red.get("zadnje_stanje"),
+            "broj_poteza": red.get("broj_poteza") or 0,
+            "izgubljeno_ukupno": red.get("izgubljeno_ukupno") or 0,
+            "zadnji_potez_vrijeme": red.get("zadnji_potez_vrijeme"),
+        }
+    except Exception:
+        return None
+
+
+def db_spremi_napredak(email, scenario_id, stanje, mode=ISPIT):
+    """Upisuje razgovor u toku. Tiho odustaje — ovo ne smije srušiti potez."""
+    if not db or not email:
+        return
+    try:
+        db.table("attempts_progress").upsert({
+            "user_email": email,
+            "scenario_id": scenario_id,
+            "mode": mode,
+            "broj_poteza": stanje.get("broj_poteza", 0),
+            "izgubljeno_ukupno": stanje.get("izgubljeno_ukupno", 0),
+            "poruke_api": stanje.get("poruke_api") or [],
+            "poruke_prikaz": stanje.get("poruke_prikaz") or [],
+            "stanja": stanje.get("stanja") or [],
+            "zadnje_stanje": stanje.get("zadnje_stanje"),
+            "azurirano_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="user_email,scenario_id,mode").execute()
+    except Exception as e:
+        zabiljezi_gresku(e)
+
+
+def db_obrisi_napredak(email, scenario_id, mode=ISPIT):
+    """Briše sačuvani razgovor — poziva se kad je scenarij ocijenjen."""
+    if not db or not email:
+        return
+    try:
+        (db.table("attempts_progress").delete()
+         .eq("user_email", email).eq("scenario_id", scenario_id)
+         .eq("mode", mode).execute())
+    except Exception as e:
+        zabiljezi_gresku(e)
 
 
 def db_leaderboard(period):
@@ -299,7 +415,11 @@ def db_leaderboard(period):
         else:
             od = "2020-01-01T00:00:00+00:00"
 
-        r = db.table("attempts").select("user_email, score, anamneza, komunikacija, sigurnost").gte("completed_at", od).execute()
+        # Ljestvica broji samo ispite — vjezba je neogranicena, pa bi inace
+        # rang mjerio upornost umjesto znanja.
+        r = (db.table("attempts")
+             .select("user_email, score, anamneza, komunikacija, sigurnost")
+             .eq("mode", ISPIT).gte("completed_at", od).execute())
         if not r.data:
             return []
 
@@ -450,7 +570,7 @@ def db_svi_pokusaji_export():
         return []
     try:
         r = db.table("attempts").select(
-            "user_email, scenario_id, score, anamneza, komunikacija, sigurnost, "
+            "user_email, scenario_id, mode, score, anamneza, komunikacija, sigurnost, "
             "completed_at, appeal_status"
         ).order("completed_at", desc=True).execute()
         return r.data or []
@@ -565,7 +685,7 @@ def db_statistika():
         return None
     try:
         pokusaji = db.table("attempts").select(
-            "user_email, scenario_id, score, completed_at").execute().data or []
+            "user_email, scenario_id, mode, score, completed_at").execute().data or []
         korisnici = db.table("users").select("email, approved").execute().data or []
         od30 = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
         upotreba = db.table("usage_log").select(

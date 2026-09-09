@@ -69,6 +69,35 @@ def prikazi_ishod(stanja):
         unsafe_allow_html=True)
 
 
+def prikazi_pravila(je_ispit, max_poteza):
+    """Ekran s pravilima prije početka. Vraća True kad polaznik klikne „Počni“.
+
+    Tajmer je ranije kretao onog trenutka kad se stranica otvori, pa je
+    polaznik gubio poteze dok je još čitao ko mu je pacijent.
+    """
+    pravila = [
+        f"Imate **{max_poteza} unosa**. Svaka vaša poruka troši jedan.",
+        ("Na svaki odgovor imate **2 minute**. Istek ne briše razgovor, ali troši jedan unos."
+         if je_ispit else "**Bez tajmera** — vježba se ne mjeri vremenom."),
+        ("Rezultat ide na **ljestvicu** i scenarij se igra **samo jednom**."
+         if je_ispit else "Rezultat **ne ide** na ljestvicu i vježbu možete ponoviti."),
+        "Pacijent ne otkriva sve sam. Neke stvari kaže tek kad ga pitate — a neke tek "
+        "kad mu objasnite zašto pitate.",
+        "**Fatalne greške postoje.** Preporuka pogrešnog preparata može oboriti sigurnost na nulu.",
+        "Razgovor se čuva — ako vam padne veza ili zatvorite stranicu, nastavljate gdje ste stali.",
+    ]
+    st.markdown(
+        '<div style="background:white;border-radius:14px;padding:20px 24px;margin:12px 0;'
+        'box-shadow:0 1px 4px rgba(0,0,0,0.07)">'
+        '<div style="font-weight:700;color:#1e293b;margin-bottom:12px">Prije nego počnete</div>'
+        + "".join(
+            '<div style="font-size:14px;color:#475569;line-height:1.6;margin-bottom:9px">'
+            f'• {p}</div>' for p in pravila)
+        + '</div>', unsafe_allow_html=True)
+
+    return st.button("Počni", type="primary", use_container_width=True)
+
+
 BOJE_STATUSA = {
     "DA":         ("#16a34a", "#dcfce7", "DA"),
     "DJELIMICNO": ("#b45309", "#fef3c7", "DJELIMIČNO"),

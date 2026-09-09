@@ -1,10 +1,11 @@
 """Ekran \"Moji rezultati\": nadimak, historija pokusaja, brisanje naloga."""
 import time
+from collections import defaultdict
 
 import streamlit as st
 
-from baza import (db_login, db_moji_rezultati, db_obrisi_sve_podatke, db_posalji_zalbu,
-                  db_postavi_nadimak, je_admin, nadimak_za)
+from baza import (ISPIT, VJEZBA, db_login, db_moji_rezultati, db_obrisi_sve_podatke,
+                  db_posalji_zalbu, db_postavi_nadimak, je_admin, nadimak_za)
 from scenariji import SCENARIJI
 
 def prikazi_nadimak_postavku():
@@ -37,6 +38,36 @@ def prikazi_nadimak_postavku():
                     st.error(poruka)
 
 
+def prikazi_krivulju_vjezbi(vjezbe):
+    """Krivulja napretka kroz vježbe, po scenariju.
+
+    Ispit pokazuje gdje ste danas; vježbe pokazuju krećete li se. Zato se
+    crtaju odvojeno i tek kad ima bar dvije vježbe istog scenarija — jedna
+    tačka nije krivulja.
+    """
+    if not vjezbe:
+        return
+
+    po_scenariju = defaultdict(list)
+    for v in sorted(vjezbe, key=lambda x: x.get("completed_at") or ""):
+        po_scenariju[v["scenario_id"]].append(float(v["score"]))
+
+    crtljivi = {sid: ocjene for sid, ocjene in po_scenariju.items() if len(ocjene) >= 2}
+    if not crtljivi:
+        st.caption(f"Odvježbali ste {len(vjezbe)} put(a). Krivulja napretka se crta "
+                   "kad isti scenarij odvježbate bar dvaput.")
+        return
+
+    with st.expander(f"Napredak kroz vježbe ({len(vjezbe)} vježbi)", expanded=False):
+        for sid, ocjene in crtljivi.items():
+            naziv = SCENARIJI.get(sid, {}).get("naziv", sid)
+            promjena = ocjene[-1] - ocjene[0]
+            znak = "+" if promjena >= 0 else ""
+            st.markdown(f"**{naziv}** — {len(ocjene)} vježbi, "
+                        f"{ocjene[0]:.1f} → {ocjene[-1]:.1f} ({znak}{promjena:.1f})")
+            st.line_chart(ocjene, height=140)
+
+
 def prikazi_moje_rezultate():
     st.markdown("## Moji rezultati")
     email = st.session_state.get("korisnik_email", "")
@@ -50,13 +81,19 @@ def prikazi_moje_rezultate():
         </div>""", unsafe_allow_html=True)
         return
 
-    ukupno = sum(float(r["score"]) for r in rezultati)
-    prosjek = ukupno / len(rezultati)
+    # Ispiti i vjezbe se broje odvojeno — vjezba ne ulazi u rezultat.
+    ispiti = [r for r in rezultati if (r.get("mode") or ISPIT) == ISPIT]
+    vjezbe = [r for r in rezultati if (r.get("mode") or ISPIT) == VJEZBA]
+
+    ukupno = sum(float(r["score"]) for r in ispiti)
+    prosjek = ukupno / len(ispiti) if ispiti else 0.0
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Ukupno bodova", f"{ukupno:.1f}")
-    col2.metric("Završenih scenarija", len(rezultati))
+    col2.metric("Položenih ispita", len(ispiti))
     col3.metric("Prosječna ocjena", f"{prosjek:.1f}")
+
+    prikazi_krivulju_vjezbi(vjezbe)
 
     st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
@@ -69,11 +106,16 @@ def prikazi_moje_rezultate():
         boja = "#22c55e" if ocjena >= 7 else ("#f59e0b" if ocjena >= 5 else "#ef4444")
         bg_score = "#f0fdf4" if ocjena >= 7 else ("#fffbeb" if ocjena >= 5 else "#fef2f2")
         datum = r.get("completed_at", "")[:10] if r.get("completed_at") else ""
+        # Vjezba se mora razlikovati od ispita na prvi pogled — inace historija
+        # izgleda kao da je scenarij igran vise puta ispitno.
+        znacka = ("" if (r.get("mode") or ISPIT) == ISPIT else
+                  '<span style="background:#e0e7ff;color:#4338ca;font-size:11px;font-weight:700;'
+                  'padding:2px 8px;border-radius:6px;margin-left:8px">VJEŽBA</span>')
         st.markdown(f"""
         <div style="background:white;border-radius:14px;padding:16px 20px;margin-bottom:10px;
              box-shadow:0 1px 4px rgba(0,0,0,0.07);display:flex;align-items:center;gap:16px">
             <div style="flex:1">
-                <div style="font-weight:600;color:#1e293b">{naziv}</div>
+                <div style="font-weight:600;color:#1e293b">{naziv}{znacka}</div>
                 <div style="font-size:13px;color:#94a3b8;margin-top:2px">{datum}</div>
                 <div style="font-size:13px;color:#64748b;margin-top:4px">
                     Anamneza: {r.get('anamneza','?')}/10 ·

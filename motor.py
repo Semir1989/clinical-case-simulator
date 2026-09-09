@@ -6,7 +6,7 @@ import streamlit as st
 
 from konfig import (JEZIK_PRAVILO, MAX_POTEZA, zabiljezi_gresku, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
                     ai)
-from baza import db_log_upotrebu, db_spremi
+from baza import ISPIT, db_log_upotrebu, db_spremi
 from ocjena import izvuci_json, provjeri_kriterije, provjeri_ocjenu
 from rubrika import shema_alata, za_scenarij as rubrika_za_scenarij
 from stanje import izdvoji_stanje, sazetak_za_evaluatora
@@ -119,6 +119,37 @@ def pozovi_pacijenta(poruke, sc, prethodno_stanje=None, dodatna_uputa=""):
     return cist, novo, sirovi
 
 
+def pozovi_pacijenta_stream(poruke, sc, prethodno_stanje=None, na_dio=None):
+    """Isto što i pozovi_pacijenta, ali replika stiže riječ po riječ.
+
+    Blok stanja se ne smije vidjeti ni na trenutak, a stiže na kraju replike.
+    Zato se prikazuje samo tekst do prvog "<": ako model još nije počeo blok,
+    ništa se ne zadržava, a čim počne, sve iza njega ostaje skriveno. Blok se
+    razlaže tek kad stigne cijeli tekst.
+
+    Pri grešci se pada natrag na obični poziv — streaming je udobnost, replika
+    je ono što se ne smije izgubiti.
+    """
+    sistem = napravi_system_prompt(sc)
+    sirovi = ""
+    try:
+        with ai.messages.stream(model=MODEL_PACIJENT, max_tokens=500,
+                                system=sistem, messages=poruke) as tok:
+            for dio in tok.text_stream:
+                sirovi += dio
+                if na_dio:
+                    na_dio(sirovi.split("<")[0])
+            poruka = tok.get_final_message()
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return pozovi_pacijenta(poruke, sc, prethodno_stanje)
+
+    db_log_upotrebu("poruka", st.session_state.get("odabrani_scenarij", ""),
+                    poruka.usage.input_tokens, poruka.usage.output_tokens)
+    cist, novo = izdvoji_stanje(sirovi, prethodno_stanje)
+    return cist, novo, sirovi
+
+
 UPUTA_ZATVARANJE = (
     "[UPUTA, nije replika farmaceuta] Razgovor se završava i farmaceut se oprostio. "
     "Daj SAMO svoju posljednju repliku — kratku, u prvom licu — iz koje se jasno vidi šta ćeš "
@@ -215,7 +246,7 @@ Presudi svaki kriterij alatom "ocijeni". Svaki DA i DJELIMICNO nosi doslovan cit
     return None
 
 
-def pokreni_evaluaciju(stanje, sc, sc_id):
+def pokreni_evaluaciju(stanje, sc, sc_id, mode=ISPIT):
     transkript = "\n".join(
         f"{'Farmaceut' if p['role'] == 'user' else 'Pacijent'}: {p['content']}"
         for p in stanje["poruke_prikaz"]
@@ -237,7 +268,7 @@ def pokreni_evaluaciju(stanje, sc, sc_id):
         stanje["ocjena"] = rezultat
         stanje["zavrseno"] = True
         db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript,
-                  stanja)
+                  stanja, mode)
     else:
         st.error("Greška pri analizi ocjene. Pokušaj ponovo.")
         stanje["zavrseno"] = False

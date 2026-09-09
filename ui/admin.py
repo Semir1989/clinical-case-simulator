@@ -397,7 +397,11 @@ def prikazi_admin():
         if not podaci:
             st.caption("Statistika nije dostupna.")
         else:
-            pokusaji = podaci["pokusaji"]
+            # Statistika mjeri ispite. Vjezbe se broje odvojeno — inace bi
+            # prosjek po scenariju pao samim tim sto neko puno vjezba.
+            svi_pokusaji = podaci["pokusaji"]
+            pokusaji = [p for p in svi_pokusaji if (p.get("mode") or "ispit") == "ispit"]
+            broj_vjezbi = len(svi_pokusaji) - len(pokusaji)
             upotreba = podaci["upotreba"]
             sada = datetime.now(timezone.utc)
             danas_str = sada.date().isoformat()
@@ -413,7 +417,8 @@ def prikazi_admin():
             c1.metric("Korisnika", sum(1 for k in podaci["korisnici"] if k.get("approved")))
             c2.metric("Aktivni danas", len(aktivni_danas))
             c3.metric("Aktivni (7 d)", len(aktivni_7d))
-            c4.metric("Pokušaja ukupno", len(pokusaji))
+            c4.metric("Ispita ukupno", len(pokusaji),
+                      help=f"Uz to i {broj_vjezbi} vježbi, koje se ne broje u statistiku.")
 
             # ── Po scenariju ──
             st.markdown("#### Po scenariju")

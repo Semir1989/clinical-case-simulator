@@ -77,13 +77,26 @@ def sumnjive_optuzbe(rezultat, transkript):
             and not any(i in priznato for i in izrazi)]
 
 
+# Granica poteza koja je vazila kad su referentni transkripti odigrani.
+# MAX_POTEZA je 9. 9. 2026. spusten na 7, ali referenca je snimljena na 10 i to
+# se ne smije mijenjati naknadno: evaluatoru se govori koliko je poteza farmaceut
+# IMAO NA RASPOLAGANJU, ne koliko ih je potrosio. Manji broj bi ga branio od
+# zasluzenih zamjerki, veci bi ga kaznjavao za ono sto nije stigao.
+GRANICA_REFERENCE = 10
+
+
+def granica_poteza(stavka):
+    return int(stavka.get("max_poteza") or GRANICA_REFERENCE)
+
+
 def ocijeni_v2(ai, sc, s, rub):
     """Poziva ocjenjivač v2 — presuda po kriteriju kroz tool use."""
     poruka = (f"Ocijeni savjetovanje farmaceuta u apoteci.\n\n"
               f"Scenarij: {sc['ime']}, {sc['godine']} god. — {sc['tegoba']}\n"
               f"Crvene zastavice: {sc['crvene_zastavice']}\n"
               f"Očekivano savjetovanje: {sc['ocekivano']}\n\n"
-              f"OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {MAX_POTEZA} poteza "
+              f"OGRANIČENJE RAZGOVORA: farmaceut je imao najviše "
+              f"{granica_poteza(s)} poteza "
               f"(poruka). Vidi pravilo 3.\n\nTRANSKRIPT:\n{s['transkript']}\n\n"
               f"Presudi svaki kriterij alatom \"ocijeni\". Svaki DA i DJELIMICNO nosi "
               f"doslovan citat.")
@@ -160,7 +173,8 @@ def main():
                   f"Crvene zastavice: {sc['crvene_zastavice']}\n"
                   f"Očekivano savjetovanje: {sc['ocekivano']}\n\n"
                   f"RUBRIKA:\n{sc.get('rubrika','')}\n\n"
-                  f"OGRANIČENJE RAZGOVORA: farmaceut je imao najviše {MAX_POTEZA} poteza "
+                  f"OGRANIČENJE RAZGOVORA: farmaceut je imao najviše "
+              f"{granica_poteza(s)} poteza "
                   f"(poruka). Vidi pravilo 3.\n\nTRANSKRIPT:\n{s['transkript']}\n\n"
                   f"Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, "
                   f"tačno ovog oblika:\n{EVALUATOR_SHEMA}")

@@ -24,7 +24,8 @@ from baza import (ISPIT, VJEZBA, _ucitaj_objave, db_broj_vjezbi,  # noqa: E402
                   db_poruka_danas, db_spremi_napredak, db_ucitaj_napredak,
                   db_vec_uradio, db_zavrseni_scenariji, je_admin)
 from demo import prikazi_demo  # noqa: E402
-from konfig import DNEVNI_LIMIT_PORUKA, MAX_POTEZA  # noqa: E402
+from konfig import (DNEVNI_LIMIT_PORUKA, MAX_POTEZA,  # noqa: E402
+                    VJEZBA_OMOGUCENA)
 from motor import (pokreni_evaluaciju, pozovi_pacijenta_stream,  # noqa: E402
                    zatvori_razgovor)
 from scenariji import SCENARIJI  # noqa: E402
@@ -112,8 +113,11 @@ def otvori_scenarij(sc_id, novi_mod):
 # ─── Ako nema odabranog scenarija → prikaži kartice ──────────────────────────
 if odabrani_id is None:
     st.markdown("## Klinički slučajevi")
-    st.caption("**Ispit** se igra jednom i ide na ljestvicu. **Vježba** je neograničena, "
-               "bez tajmera, i ne ulazi u rezultat.")
+    if VJEZBA_OMOGUCENA:
+        st.caption("**Ispit** se igra jednom i ide na ljestvicu. **Vježba** je neograničena, "
+                   "bez tajmera, i ne ulazi u rezultat.")
+    else:
+        st.caption("Svaki scenarij se igra **jednom**. Vježba je privremeno isključena.")
 
     # Sortiraj: nezavršeni prvi, završeni ispod
     svi = [(sid, s) for sid, s in SCENARIJI.items() if s.get("aktivan", True)]
@@ -160,7 +164,9 @@ if odabrani_id is None:
         oznaka_vjezbe = "Vježba"
         if vjezbi.get(sc_id):
             oznaka_vjezbe += f" ({vjezbi[sc_id]})"
-        if c2.button(oznaka_vjezbe, key=f"vjezba_{sc_id}", use_container_width=True):
+        if c2.button(oznaka_vjezbe, key=f"vjezba_{sc_id}", use_container_width=True,
+                     disabled=not VJEZBA_OMOGUCENA,
+                     help=None if VJEZBA_OMOGUCENA else "Vježba je privremeno isključena."):
             otvori_scenarij(sc_id, VJEZBA)
 
         st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
@@ -182,6 +188,12 @@ sc = SCENARIJI.get(odabrani_id)
 if not sc:
     st.session_state["odabrani_scenarij"] = None
     st.rerun()
+if mod == VJEZBA and not VJEZBA_OMOGUCENA:
+    # Druga brava: dugme je onemoguceno, ali stanje sesije moze prezivjeti
+    # gasenje prekidaca, pa se rezim provjerava i ovdje.
+    st.session_state["odabrani_mod"] = ISPIT
+    st.rerun()
+
 # Ispit se gleda kao zavrsen; vjezba se uvijek moze ponoviti.
 vec_uradjen = mod == ISPIT and db_vec_uradio(email, odabrani_id)
 

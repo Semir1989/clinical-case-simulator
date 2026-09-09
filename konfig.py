@@ -86,10 +86,26 @@ def zabiljezi_gresku(e):
         pass
 
 
-MAX_POTEZA = 10
+# Broj poteza je i pedagoska i troskovna odluka: svaki potez nosi cijelu
+# dosadasnju historiju, pa su zadnji potezi najskuplji. Spusteno s 10 na 7
+# 9. 9. 2026. — kalibracioni transkripti su igrani na 10 i to se racuna iz
+# samog transkripta (vidi kalibracija/izmjeri.py), ne iz ove konstante.
+MAX_POTEZA = 7
+
+# Vjezba je izgradjena i radi, ali je zakljucana dok se ne rijesi troskovna
+# strana: vjezba trosi API tacno koliko i ispit, a neogranicena je. Sa 100
+# aktivnih ljudi i zatecenim dnevnim limitom to je do ~1.350 USD mjesecno.
+# Prekidac se vraca na True kad kvota po korisniku bude uvedena. NE brisati kod
+# — sve ostalo (mode, napredak, krivulja) radi i ceka samo ovu zastavicu.
+VJEZBA_OMOGUCENA = False
 DNEVNI_LIMIT_PORUKA = 60  # max AI poruka po korisniku dnevno (kontrola troškova)
 
 # Modeli — na jednom mjestu da se mogu mijenjati bez traženja po fajlu
+# Pacijent ostaje na Sonnetu. Mjereno 9. 9. 2026. na skupu iz
+# skripte/test_ponasanja.py: Haiku 4.5 je stedio samo ~32% (verboznost mu pojede
+# prednost u cijeni), ali je izmisljao poricanja ("mokraca? pa normalna je" iako
+# je u cinjenicama tamna) i sam iznosio skrivene cinjenice bez pitanja. To rusi
+# cijelu mehaniku okidaca, pa usteda ne dolazi u obzir.
 MODEL_PACIJENT = "claude-sonnet-4-6"
 MODEL_EVALUATOR = "claude-sonnet-4-6"
 MODEL_GENERATOR = "claude-sonnet-4-6"

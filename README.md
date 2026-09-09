@@ -183,6 +183,10 @@ create table usage_log (
   id          bigserial primary key,
   user_email  text,
   event       text,        -- start | poruka | evaluacija | epilog | generisanje_scenarija
+  tokens_in   integer,     -- OD 9. 9. 2026: ekvivalent punih ulaznih tokena.
+                           -- Upis kesa se racuna 1,25x, citanje 0,1x. Ranije se
+                           -- bilježio samo input_tokens, pa je procjena troska
+                           -- bila osjetno niza od stvarne.
   scenario_id text,
   tokens_in   integer default 0,
   tokens_out  integer default 0,

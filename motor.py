@@ -25,6 +25,22 @@ PERSONA_OPISI = {
 }
 
 
+def zabiljezi_potrosnju(dogadjaj, usage, scenarij=None):
+    """Upisuje potrošnju u usage_log, uključujući keš.
+
+    Do sada se bilježio samo `input_tokens`, koji NE uključuje keširane tokene.
+    Upis keša se naplaćuje 1,25x, čitanje 0,1x — pa je procjena troška u admin
+    panelu bila osjetno niža od stvarne. Oba se svode na "ekvivalent punih
+    ulaznih tokena" da stara kolona ostane uporediva sa starim zapisima.
+    """
+    upis = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    citanje = getattr(usage, "cache_read_input_tokens", 0) or 0
+    ulaz_ekvivalent = round((usage.input_tokens or 0) + upis * 1.25 + citanje * 0.10)
+    if scenarij is None:
+        scenarij = st.session_state.get("odabrani_scenarij", "")
+    db_log_upotrebu(dogadjaj, scenarij, ulaz_ekvivalent, usage.output_tokens)
+
+
 def opisi_personu(persona):
     if not persona:
         return ""
@@ -84,6 +100,16 @@ def opisi_znakove(znakovi):
 
 
 def napravi_system_prompt(sc):
+    """Sistemski prompt pacijenta — oba bloka keširana.
+
+    Statički priručnik (~3.300 tokena) isti je za sve scenarije. Dinamički blok
+    (~1.600 tokena: činjenice, persona, otpor) isti je za svakog korisnika i
+    svaki potez ISTOG scenarija — a plaćao se punom cijenom svaki potez, deset
+    puta po partiji. Drugi prekid keša to zaustavlja.
+
+    Keš se veže na prefiks, pa drugi prekid pokriva oba bloka zajedno; time je i
+    minimalna dužina za keširanje ispunjena bez obzira na model.
+    """
     staticki = PACIJENT_PRIRUCNIK + "\n\n" + JEZIK_PRAVILO
     dinamicki = (
         f"\nGlumaš: {sc['ime']}, {sc['godine']} god.\n"
@@ -96,8 +122,27 @@ def napravi_system_prompt(sc):
     )
     return [
         {"type": "text", "text": staticki, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": dinamicki},
+        {"type": "text", "text": dinamicki, "cache_control": {"type": "ephemeral"}},
     ]
+
+
+def sa_kesom(poruke):
+    """Vraća kopiju historije s prekidom keša na posljednjoj poruci.
+
+    Bez ovoga se cijeli dosadašnji razgovor u svakom potezu plaća iznova, a on
+    raste sa svakim potezom. Kopija je namjerna: historija u sesiji i u bazi
+    mora ostati obični tekst, jer se sprema i prikazuje.
+    """
+    if not poruke:
+        return poruke
+    kopija = list(poruke)
+    zadnja = dict(kopija[-1])
+    sadrzaj = zadnja.get("content")
+    if isinstance(sadrzaj, str):
+        zadnja["content"] = [{"type": "text", "text": sadrzaj,
+                              "cache_control": {"type": "ephemeral"}}]
+        kopija[-1] = zadnja
+    return kopija
 
 
 def pozovi_pacijenta(poruke, sc, prethodno_stanje=None, dodatna_uputa=""):
@@ -111,10 +156,9 @@ def pozovi_pacijenta(poruke, sc, prethodno_stanje=None, dodatna_uputa=""):
         sistem = sistem + [{"type": "text", "text": dodatna_uputa}]
     r = ai.messages.create(
         model=MODEL_PACIJENT, max_tokens=500,
-        system=sistem, messages=poruke,
+        system=sistem, messages=sa_kesom(poruke),
     )
-    db_log_upotrebu("poruka", st.session_state.get("odabrani_scenarij", ""),
-                    r.usage.input_tokens, r.usage.output_tokens)
+    zabiljezi_potrosnju("poruka", r.usage)
     sirovi = r.content[0].text
     cist, novo = izdvoji_stanje(sirovi, prethodno_stanje)
     return cist, novo, sirovi
@@ -135,7 +179,7 @@ def pozovi_pacijenta_stream(poruke, sc, prethodno_stanje=None, na_dio=None):
     sirovi = ""
     try:
         with ai.messages.stream(model=MODEL_PACIJENT, max_tokens=500,
-                                system=sistem, messages=poruke) as tok:
+                                system=sistem, messages=sa_kesom(poruke)) as tok:
             for dio in tok.text_stream:
                 sirovi += dio
                 if na_dio:
@@ -145,8 +189,7 @@ def pozovi_pacijenta_stream(poruke, sc, prethodno_stanje=None, na_dio=None):
         zabiljezi_gresku(e)
         return pozovi_pacijenta(poruke, sc, prethodno_stanje)
 
-    db_log_upotrebu("poruka", st.session_state.get("odabrani_scenarij", ""),
-                    poruka.usage.input_tokens, poruka.usage.output_tokens)
+    zabiljezi_potrosnju("poruka", poruka.usage)
     cist, novo = izdvoji_stanje(sirovi, prethodno_stanje)
     return cist, novo, sirovi
 
@@ -199,8 +242,7 @@ Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, tačno ovog
         system=EVALUATOR_SISTEM,
         messages=[{"role": "user", "content": prompt}],
     )
-    db_log_upotrebu("evaluacija", st.session_state.get("odabrani_scenarij", ""),
-                    r.usage.input_tokens, r.usage.output_tokens)
+    zabiljezi_potrosnju("evaluacija", r.usage)
     return r.content[0].text
 
 
@@ -232,15 +274,18 @@ Presudi svaki kriterij alatom "ocijeni". Svaki DA i DJELIMICNO nosi doslovan cit
         "description": "Presuda po svakom kriteriju rubrike, s dokazom iz transkripta.",
         "input_schema": shema_alata(rub),
     }
+    # Alati i sistemski prompt su isti za svaki pokusaj istog scenarija, a
+    # kesiranje pokriva prefiks (alati -> sistem -> poruke), pa jedan prekid na
+    # sistemu kesira i shemu alata. Mijenja se samo transkript.
     r = ai.messages.create(
         model=MODEL_EVALUATOR, max_tokens=4000, temperature=0,
-        system=EVALUATOR_SISTEM_V2,
+        system=[{"type": "text", "text": EVALUATOR_SISTEM_V2,
+                 "cache_control": {"type": "ephemeral"}}],
         tools=[alat],
         tool_choice={"type": "tool", "name": "ocijeni"},
         messages=[{"role": "user", "content": prompt}],
     )
-    db_log_upotrebu("evaluacija", st.session_state.get("odabrani_scenarij", ""),
-                    r.usage.input_tokens, r.usage.output_tokens)
+    zabiljezi_potrosnju("evaluacija", r.usage)
     for blok in r.content:
         if blok.type == "tool_use":
             return blok.input
@@ -303,7 +348,7 @@ Vrati ISKLJUČIVO validan JSON bez teksta prije ili poslije, tačno ovog oblika:
         zabiljezi_gresku(e)
         return None, None
 
-    db_log_upotrebu("epilog", sc.get("id", ""), r.usage.input_tokens, r.usage.output_tokens)
+    zabiljezi_potrosnju("epilog", r.usage, sc.get("id", ""))
     podaci = izvuci_json(r.content[0].text) or {}
     return podaci.get("epilog"), podaci.get("uzoran_razgovor")
 

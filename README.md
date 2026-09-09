@@ -26,6 +26,7 @@ Do septembra 2026. sve je živjelo u jednom fajlu od 3.281 linije. Sada:
 | `motor.py` | Pozivi prema modelu |
 | `ocjena.py` | Provjera dokaza i izračun ocjene — čist Python, bez Streamlita |
 | `rubrika.py` | Rubrika v2: kriteriji, kazne, izračun bodova, shema alata — čist Python |
+| `SCENARIJ-V2.md` | Standard scenarija. Mijenja se **prvo ovdje**, pa u skillu i `upsert_scenarij.py` |
 | `stanje.py` | Skriveno stanje pacijenta i didaskalije — takođe čist Python |
 | `scenariji.py` | Ugrađeni scenariji + oni iz baze |
 | `demo.py` | Besplatan demo slučaj, unaprijed napisan, bez API poziva |
@@ -69,6 +70,9 @@ Na Streamlit Cloudu isti ključevi idu u **Settings → Secrets**, ne u `.env`.
 ```bash
 venv/Scripts/python test_ocjena.py     # provjera dokaza i izračun ocjene
 venv/Scripts/python test_rubrika.py    # rubrika v2: parsiranje, bodovi, kazne
+
+# Provjera generisanog scenarija prije upisa u bazu (ne troši API):
+venv/Scripts/python skripte/provjeri_scenarij.py scenario/generisani/scenarij_N.json
 venv/Scripts/python test_lozinke.py    # bcrypt migracija, zaključavanje, uloge
 venv/Scripts/python test_prompt.py     # gradnja prompta, persona, povratak na stari tekst
 venv/Scripts/python test_stanje.py     # parsiranje skrivenog stanja i didaskalija
@@ -172,6 +176,8 @@ create table scenarios (
   ocekivano        text,
   pocetna_poruka   text,
   rubrika          text,
+  podrucje         text,        -- filter na listi; popis vrijednosti u SCENARIJ-V2.md
+  tezina           text,        -- tesko | ekspertno
   epilog           text,        -- sta se s pacijentom desilo; generise admin, jednom
   uzoran_razgovor  text,        -- kako je razgovor mogao izgledati; generise admin, jednom
   active           boolean default false,

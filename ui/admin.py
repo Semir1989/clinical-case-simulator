@@ -21,7 +21,7 @@ import rubrika
 from motor import generisi_epilog, generisi_scenarij_iz_pdfa, sljedeci_scenarij_id
 from posta import posalji_email_masovni, posalji_email_odobrenje
 from scenariji import SCENARIJI
-from ui.komponente import prikazi_ocjenu
+from ui.komponente import PODRUCJA, TEZINE, prikazi_ocjenu
 
 def _kriteriji_zalbe(z):
     """Vadi presude po kriterijima iz sačuvane ocjene; None za stare zapise."""
@@ -632,6 +632,19 @@ def prikazi_admin():
             c1, c2 = st.columns(2)
             ime_in = c1.text_input("Ime pacijenta", value=izvor.get("ime", ""))
             godine_in = c2.number_input("Godine", 0, 120, int(izvor.get("godine") or 30))
+
+            # Podrucje i tezina hrane filter na listi scenarija.
+            _podr = [""] + list(PODRUCJA)
+            _tez = ["", "tesko", "ekspertno"]
+            c3, c4 = st.columns(2)
+            podrucje_in = c3.selectbox(
+                "Područje", _podr,
+                format_func=lambda p: PODRUCJA.get(p, "— nije određeno —" if not p else p),
+                index=_podr.index(izvor.get("podrucje")) if izvor.get("podrucje") in _podr else 0)
+            tezina_in = c4.selectbox(
+                "Težina", _tez,
+                format_func=lambda t: TEZINE.get(t, "— nije određena —" if not t else t),
+                index=_tez.index(izvor.get("tezina")) if izvor.get("tezina") in _tez else 0)
             tegoba_in = st.text_area("Tegoba / razlog posjete", value=izvor.get("tegoba", ""), height=70)
             terapija_in = st.text_area("Postojeća terapija", value=izvor.get("terapija", ""), height=70)
             skriveni_in = st.text_area(
@@ -735,6 +748,7 @@ def prikazi_admin():
                     "skriveni_detalji": skriveni_in.strip(), "crvene_zastavice": zastavice_in.strip(),
                     "ocekivano": ocekivano_in.strip(), "pocetna_poruka": pocetna_in.strip(),
                     "rubrika": rubrika_in.strip(), "active": bool(aktivan_in),
+                    "podrucje": podrucje_in or None, "tezina": tezina_in or None,
                 })
                 if ok:
                     st.session_state.pop("uredi_scenarij", None)

@@ -30,7 +30,8 @@ from motor import (pokreni_evaluaciju, pozovi_pacijenta_stream,  # noqa: E402
                    zatvori_razgovor)
 from scenariji import SCENARIJI  # noqa: E402
 from ui.admin import prikazi_admin  # noqa: E402
-from ui.komponente import (prikazi_epilog, prikazi_ocjenu,  # noqa: E402
+from ui.komponente import (PODRUCJA, TEZINE, filter_scenarija,  # noqa: E402
+                           je_novo, prikazi_epilog, prikazi_ocjenu,
                            prikazi_pravila, prikazi_repliku)
 from ui.ljestvica import prikazi_leaderboard  # noqa: E402
 from ui.prijava import prikazi_login  # noqa: E402
@@ -121,6 +122,7 @@ if odabrani_id is None:
 
     # Sortiraj: nezavršeni prvi, završeni ispod
     svi = [(sid, s) for sid, s in SCENARIJI.items() if s.get("aktivan", True)]
+    svi = filter_scenarija(svi)
     zavrseni_ids = db_zavrseni_scenariji(email)
     vjezbi = db_broj_vjezbi(email)
     nezavrseni = [(sid, sc) for sid, sc in svi if sid not in zavrseni_ids]
@@ -132,12 +134,29 @@ if odabrani_id is None:
         status_tekst = "Završeno" if uradjen else "Dostupno"
         border_top = f"border-top: 4px solid {status_boja};"
 
+        # Oznake podrucja i tezine stoje uz status, da se lista moze pregledati
+        # okom prije nego se posegne za filterom.
+        znacke = ""
+        if sc.get("podrucje"):
+            znacke += (f'<span style="background:#f1f5f9;color:#475569;padding:4px 12px;'
+                       f'border-radius:20px;font-size:12px;font-weight:600;margin-left:6px">'
+                       f'{PODRUCJA.get(sc["podrucje"], sc["podrucje"])}</span>')
+        if sc.get("tezina"):
+            znacke += (f'<span style="background:#fef3c7;color:#92400e;padding:4px 12px;'
+                       f'border-radius:20px;font-size:12px;font-weight:600;margin-left:6px">'
+                       f'{TEZINE.get(sc["tezina"], sc["tezina"])}</span>')
+        if je_novo(sc):
+            znacke += ('<span style="background:#dcfce7;color:#166534;padding:4px 12px;'
+                       'border-radius:20px;font-size:12px;font-weight:700;margin-left:6px">'
+                       'NOVO OVE SEDMICE</span>')
+
         st.markdown(f"""
         <div style="background:white;border-radius:16px;padding:24px 28px;margin-bottom:16px;
              box-shadow:0 2px 10px rgba(0,0,0,0.08);{border_top}">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
                 <span style="background:{status_bg};color:{status_boja};padding:4px 14px;border-radius:20px;
                       font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">{status_tekst}</span>
+                <div>{znacke}</div>
             </div>
             <div style="font-weight:700;font-size:18px;color:#1e293b;margin-bottom:8px">{sc['naziv']}</div>
             <div style="font-size:14px;color:#475569;line-height:1.5;margin-bottom:6px">

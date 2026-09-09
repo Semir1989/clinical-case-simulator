@@ -1,5 +1,6 @@
 """Dijelovi ekrana koje koristi vise stranica."""
 import html
+from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -67,6 +68,71 @@ def prikazi_ishod(stanja):
         f"<div style='font-weight:700;color:{boja};font-size:16px;margin-top:2px'>"
         f"{ISHODI.get(ishod, ishod)}</div></div>",
         unsafe_allow_html=True)
+
+
+PODRUCJA = {
+    "trudnoca_dojenje": "Trudnoća i dojenje",
+    "kardio_interakcije": "Kardio i interakcije",
+    "geriatrija": "Geriatrija",
+    "mentalno_zdravlje": "Mentalno zdravlje",
+    "pedijatrija": "Pedijatrija",
+    "otc_zloupotreba": "OTC zloupotreba",
+    "dermatologija": "Dermatologija",
+}
+
+TEZINE = {"tesko": "Teško", "ekspertno": "Ekspertno"}
+
+DANA_ZA_NOVO = 7
+
+
+def je_novo(sc):
+    """Je li scenarij dodan u zadnjih sedam dana.
+
+    Veže se uz objave u zajednici: „novo ove sedmice" ima smisla samo ako je
+    stvarno novo, pa se računa iz datuma upisa, a ne postavlja ručno.
+    """
+    datum = (sc or {}).get("created_at") or ""
+    if not datum:
+        return False
+    try:
+        kad = datetime.fromisoformat(str(datum).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if kad.tzinfo is None:
+        kad = kad.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - kad).days < DANA_ZA_NOVO
+
+
+def filter_scenarija(scenariji):
+    """Filter po području i težini. Vraća filtriranu listu (id, scenarij).
+
+    Prikazuje se tek kad ima šta filtrirati — s četiri scenarija filter je
+    smetnja, s petnaest je jedini način da se nađe ono što te zanima.
+    """
+    if len(scenariji) < 6:
+        return scenariji
+
+    prisutna = sorted({sc.get("podrucje") for _, sc in scenariji if sc.get("podrucje")})
+    prisutne_tez = sorted({sc.get("tezina") for _, sc in scenariji if sc.get("tezina")})
+    if not prisutna and not prisutne_tez:
+        return scenariji
+
+    c1, c2 = st.columns(2)
+    izabrana = c1.multiselect(
+        "Područje", prisutna, format_func=lambda p: PODRUCJA.get(p, p),
+        placeholder="Sva područja")
+    izabrane_tez = c2.multiselect(
+        "Težina", prisutne_tez, format_func=lambda t: TEZINE.get(t, t),
+        placeholder="Sve težine")
+
+    filtrirani = [
+        (sid, sc) for sid, sc in scenariji
+        if (not izabrana or sc.get("podrucje") in izabrana)
+        and (not izabrane_tez or sc.get("tezina") in izabrane_tez)
+    ]
+    if not filtrirani:
+        st.caption("Nijedan scenarij ne odgovara izboru.")
+    return filtrirani
 
 
 def prikazi_epilog(sc):

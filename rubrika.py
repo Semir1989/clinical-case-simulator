@@ -163,14 +163,22 @@ def _povezi_kazne(kategorije):
     Prag je dvije zajedničke riječi jer jedna prečesto spoji nevezane stavke.
     Kad kazna ima svega dvije nosive riječi, spušta se na jednu — inače kratke
     kazne poput „bez pitanja o trudnoci“ nikad ne bi našle svoj kriterij.
+
+    Kazna za RADNJU traži samo unutar svoje kategorije. Kazna se gasi kad je
+    vezani kriterij priznat, pa bi kazna „izdao kalcij = 0/10“ vezana za
+    kriterij iz Anamneze bila ugašena time što je farmaceut nešto PITAO — a
+    fatalnu grešku ne poništava nijedno pitanje. Propust smije preko kategorija,
+    jer „bez pitanja o suplementima“ pod Sigurnošću zaista govori o Anamnezi.
     """
     svi = [(kr, kat) for kat in kategorije for kr in kat["kriteriji"]]
     for kat in kategorije:
         for kazna in kat["kazne"]:
             rk = _korijeni(kazna["opis"])
             prag = 2 if len(rk) >= 3 else 1
+            kandidati = (svi if kazna["vrsta"] == "propust"
+                         else [(kr, k) for kr, k in svi if k["id"] == kat["id"]])
             najbolji, najvise = [], 0
-            for kr, _ in svi:
+            for kr, _ in kandidati:
                 preklop = len(rk & _korijeni(kr["tekst"]))
                 if preklop > najvise:
                     najbolji, najvise = [kr["id"]], preklop

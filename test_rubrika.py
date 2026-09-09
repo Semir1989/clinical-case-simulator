@@ -120,6 +120,20 @@ provjeri("priznat kriterij pretegne nad prijavljenom radnjom",
 provjeri("rucna ispravka veze se primjenjuje",
          r1["kategorije"][2]["kazne"][0]["vezano_za"] == ["sigurnost_1"])
 
+# Kazna za radnju se ne smije gasiti kriterijem iz Anamneze: fatalnu gresku ne
+# ponistava to sto je farmaceut nesto pitao.
+r_radnja = rubrika.parsiraj(
+    "ANAMNEZA (tezina 0.4): pitao je li kontrolisala nivo vitamina D i kalcija(2)\n"
+    "SIGURNOST (tezina 0.3): odbio izdati kalcij dok se ne provjeri nivo vitamina D(3)\n"
+    "KAZNA: izdao kalcij ili jos vitamina D = 0/10 za Sigurnost")
+kazna_radnje = r_radnja["kategorije"][1]["kazne"][0]
+provjeri("radnja se veze samo unutar svoje kategorije",
+         kazna_radnje["vezano_za"] == ["sigurnost_1"])
+pitao_ali_izdao = {"anamneza_1": {"status": "DA"}, "sigurnost_1": {"status": "NE"}}
+provjeri("postavljeno pitanje ne gasi fatalnu kaznu za radnju",
+         rubrika.izracunaj(r_radnja, pitao_ali_izdao,
+                           radnje=["sigurnost_kazna_1"])["sigurnost"] == 0.0)
+
 r4 = rubrika.za_scenarij({"rubrika": TEKST_CRTICE}, "scenarij_4")
 suplementi_pitani = dict(sve(r4, "NE"))
 suplementi_pitani["anamneza_1"] = {"status": "DA"}

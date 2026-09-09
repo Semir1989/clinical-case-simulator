@@ -140,6 +140,13 @@ create table attempts (
   completed_at    timestamptz default now()
 );
 
+-- RLS je ukljucen na svim tabelama, a politike su namjerno siroke (kljuc je
+-- serverski, aplikacija je jedini klijent). Tabela attempts je do 9. 9. 2026.
+-- imala politike samo za SELECT/INSERT/UPDATE: brisanje je tiho ne bi obrisalo
+-- nista a vratilo uspjeh, pa GDPR brisanje naloga nije uklanjalo pokusaje.
+-- Kod sada PROVJERAVA da je brisanje stvarno proslo.
+create policy allow_delete_attempts on attempts for delete to public using (true);
+
 -- Razgovor u toku. Bez ovoga osvjezavanje stranice brise razgovor, a tajmer
 -- nastavlja trositi poteze. Red se brise cim je pokusaj ocijenjen.
 create table attempts_progress (

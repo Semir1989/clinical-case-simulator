@@ -11,7 +11,8 @@ from baza import (db_neodobreni_korisnici, db_objava_aktivna, db_objava_nova,
                   db_objava_obrisi, db_objave_sve, db_obrisi_sve_podatke,
                   db_odbij_korisnika, db_odobri_korisnika, db_otvorene_zalbe,
                   db_pokusaji_korisnika, db_postavi_suspenziju,
-                  db_postavi_ulogu, db_resetuj_lozinku, db_rijesi_zalbu,
+                  db_postavi_ulogu, db_resetuj_lozinku,
+                  db_restartuj_scenarij, db_rijesi_zalbu,
                   db_scenarij_aktivan, db_scenarij_obrisi, db_scenarij_spremi,
                   db_statistika, db_svi_korisnici, db_svi_pokusaji_export,
                   je_admin, napravi_csv)
@@ -75,6 +76,39 @@ def _preokreni_kriterije(z, kriteriji):
     bodovi = rubrika.izracunaj(rub, izmijenjeni, radnje)
     return (bodovi.get("anamneza", 0), bodovi.get("komunikacija", 0),
             bodovi.get("sigurnost", 0), izmijenjeni)
+
+
+def _restart_scenarija(email, ime_prikaz, pokusaj, naziv_sc):
+    """Vraća korisniku scenarij na igranje. Briše ocjenu, pa traži potvrdu.
+
+    Ispit se igra jednom, pa se zaključan scenarij može otvoriti samo brisanjem
+    pokušaja. To trajno gubi ocjenu i transkript i mijenja ljestvicu, zato ide
+    kroz kvačicu i tek onda dugme — jedan pogrešan klik ne smije obrisati tuđi
+    rezultat.
+    """
+    sid = pokusaj["scenario_id"]
+    mode = pokusaj.get("mode") or "ispit"
+    kljuc = f"restart_{pokusaj['id']}"
+
+    st.divider()
+    st.markdown("**Restart scenarija**")
+    st.caption(f"Korisnik ponovo dobija „{naziv_sc}“ na igranje. Ocjena "
+               f"{float(pokusaj.get('score', 0)):.1f}/10 i transkript se **trajno brišu** "
+               f"i nestaju s ljestvice.")
+    if pokusaj.get("appeal_status") == "otvorena":
+        st.warning("Na ovaj pokušaj postoji otvorena žalba. Riješite je prije restarta — "
+                   "brisanjem pokušaja nestaje i ono na šta se korisnik žalio.")
+
+    potvrda = st.checkbox("Razumijem da se ocjena i transkript trajno brišu",
+                          key=f"{kljuc}_potvrda")
+    if st.button("Restartuj scenarij", key=kljuc, type="secondary",
+                 disabled=not potvrda, use_container_width=True):
+        ok, broj = db_restartuj_scenarij(email, sid, mode)
+        if ok:
+            st.session_state["admin_flash"] = (
+                f"Scenarij „{naziv_sc}“ restartovan za {ime_prikaz} — "
+                f"obrisano pokušaja: {broj}. Korisnik ga sada može odigrati ponovo.")
+            st.rerun()
 
 
 def prikazi_admin():
@@ -390,6 +424,8 @@ def prikazi_admin():
                         st.text(pk["transcript"])
                     else:
                         st.caption("Transkript nije sačuvan (pokušaj prije uvođenja ove funkcije).")
+
+                    _restart_scenarija(opcije[izbor], izbor, pk, naziv_sc)
 
     # ══ TAB: Statistika ══
     with tab_stat:

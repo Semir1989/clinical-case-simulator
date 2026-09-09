@@ -401,6 +401,43 @@ def db_obrisi_napredak(email, scenario_id, mode=ISPIT):
         zabiljezi_gresku(e)
 
 
+def db_restartuj_scenarij(email, scenario_id, mode=ISPIT):
+    """Briše korisnikov pokušaj scenarija da ga može igrati ponovo.
+
+    Briše i zapis ocjene i eventualni razgovor u toku — dok pokušaj postoji,
+    scenarij je za tog korisnika zaključan. Ocjena i transkript se time trajno
+    gube; zato ovo radi samo administrator i uz izričitu potvrdu.
+
+    Vraća (uspjeh, broj obrisanih pokušaja).
+    """
+    if not db or not email or not scenario_id:
+        return False, 0
+    try:
+        r = (db.table("attempts").select("id").eq("user_email", email)
+             .eq("scenario_id", scenario_id).eq("mode", mode).execute())
+        broj = len(r.data or [])
+        if broj:
+            (db.table("attempts").delete().eq("user_email", email)
+             .eq("scenario_id", scenario_id).eq("mode", mode).execute())
+            # Brisanje se PROVJERAVA. Tabela attempts je do 9. 9. 2026. imala
+            # RLS bez DELETE politike, pa je brisanje tiho ne bi obrisalo nista
+            # a vratilo uspjeh. Takva greska se ne smije ponoviti nezapazeno.
+            ostalo = (db.table("attempts").select("id").eq("user_email", email)
+                      .eq("scenario_id", scenario_id).eq("mode", mode).execute())
+            if ostalo.data:
+                st.error("Pokušaj nije obrisan — baza je odbila brisanje. "
+                         "Provjerite DELETE politiku na tabeli 'attempts'.")
+                return False, 0
+        # Prekinut razgovor mora nestati zajedno s pokusajem, inace bi se
+        # korisnik pri sljedecem ulasku vratio u stari razgovor.
+        db_obrisi_napredak(email, scenario_id, mode)
+        return True, broj
+    except Exception as e:
+        zabiljezi_gresku(e)
+        st.error(f"DB greška (restart scenarija): {e}")
+        return False, 0
+
+
 def db_leaderboard(period):
     if not db:
         return []
@@ -555,7 +592,20 @@ def db_obrisi_sve_podatke(email):
         return False
     try:
         db.table("attempts").delete().eq("user_email", email).execute()
+        # Razgovori u toku takodjer nose transkript korisnika — bez ovoga bi
+        # GDPR brisanje ostavljalo prekinute razgovore u attempts_progress.
+        try:
+            db.table("attempts_progress").delete().eq("user_email", email).execute()
+        except Exception as e:
+            zabiljezi_gresku(e)      # baza bez te tabele ne smije oboriti brisanje
         db.table("usage_log").delete().eq("user_email", email).execute()
+        # Isti razlog kao kod restarta: brisanje bez politike tiho ne uradi
+        # nista. Kod GDPR zahtjeva laznu potvrdu ne smijemo dati nikako.
+        ostalo = db.table("attempts").select("id").eq("user_email", email).execute()
+        if ostalo.data:
+            st.error("Pokušaji ovog korisnika nisu obrisani — baza je odbila brisanje. "
+                     "Nalog NIJE uklonjen; provjerite DELETE politiku na tabeli 'attempts'.")
+            return False
         db.table("users").delete().eq("email", email).execute()
         return True
     except Exception as e:

@@ -44,7 +44,8 @@ KAZNA: dao kortikosteroid trudnici = 0/10 za Sigurnost""",
         "tegoba": "epizode lupanja srca koje traju već nekoliko dana, došla po nešto za smirenje",
         "terapija": "od prije 3 mjeseca koristi lijekove na recept, kvetiapin 100 mg i sertralin 50 mg",
         "skriveni_detalji": (
-            "Ima bračne probleme i osjećaj potištenosti koji traje oko mjesec dana; "
+            "Od prije tri mjeseca pije sertralin i kvetiapin od psihijatra, ali joj se zadnjih mjesec dana "
+            "potištenost pogoršala zbog bračnih problema; "
             "prije tri sedmice počela uzimati biljni dodatak prehrani u kapsulama koji joj je preporučila prijateljica "
             "(na kutiji piše da je biljka sa žutim cvijetom, uzima 300 mg dnevno); "
             "od prošle sedmice ima znojenje, nesanicu i česte epizode lupanja srca, "
@@ -56,9 +57,9 @@ KAZNA: dao kortikosteroid trudnici = 0/10 za Sigurnost""",
             "svi laboratorijski nalazi uredni (krvna slika, biohemija, troponin negativan), "
             "uradili su ultrazvuk srca koji je bio potpuno uredan; "
             "ljekar joj je rekao da je srce strukturno zdravo i da prekine sa tim biljnim dodatkom; "
-            "nije rekla ljekaru tačno šta uzima jer joj je bilo neugodno; "
+            "ni ljekaru ni psihijatru nije rekla tačno šta uzima jer joj je bilo neugodno; "
             "nema bolova u grudima, nema otežanog disanja, nije se onesvijestila; "
-            "ne koristi nikakve druge lijekove, ne puši, ne pije alkohol redovno"
+            "osim sertralina i kvetiapina ne koristi druge lijekove, ne puši, ne pije alkohol redovno"
         ),
         "crvene_zastavice": (
             "Biljni dodatak sa žutim cvijetom = kantarion (Hypericum perforatum); "

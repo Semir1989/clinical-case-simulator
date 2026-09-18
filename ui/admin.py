@@ -606,7 +606,11 @@ def prikazi_admin():
                 # Epilog i uzoran razgovor se prave jednom po scenariju i
                 # spremaju uz njega — polaznika zato ne kostaju nista.
                 ima_epilog = bool(s.get("epilog") and s.get("uzoran_razgovor"))
-                oznaka = "Epilog: napravljen" if ima_epilog else "Epilog: nedostaje"
+                # Dugme placa API; isti posao bez troska radi /epilog-scenarija
+                # u Claude Code. Dugme ostaje kao rezerva.
+                oznaka = ("Epilog: napravljen" if ima_epilog else
+                          "Epilog: nedostaje — besplatno kroz /epilog-scenarija u Claude Code, "
+                          "dugme troši API")
                 ce1, ce2 = st.columns([2, 1])
                 ce1.caption(oznaka)
                 if ce2.button("Generiši epilog" if not ima_epilog else "Napravi ponovo",

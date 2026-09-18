@@ -45,7 +45,7 @@ def provjeri_osnovno(sc):
     if sc.get("tezina") and sc["tezina"] not in TEZINE:
         greska(f"tezina '{sc['tezina']}' nije 'tesko' ni 'ekspertno'")
     if sc.get("epilog") or sc.get("uzoran_razgovor"):
-        upozori("epilog i uzoran_razgovor se generisu iz admin panela, ne pisu rucno")
+        upozori("epilog i uzoran_razgovor se ne upisuju ovdje — ide ih skill /epilog-scenarija")
 
 
 def provjeri_cinjenice(sc):

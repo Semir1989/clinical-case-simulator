@@ -28,7 +28,7 @@ from konfig import (DNEVNI_LIMIT_PORUKA, MAX_POTEZA,  # noqa: E402
                     VJEZBA_OMOGUCENA)
 from motor import (pokreni_evaluaciju, pozovi_pacijenta_stream,  # noqa: E402
                    zatvori_razgovor)
-from scenariji import SCENARIJI  # noqa: E402
+from scenariji import SCENARIJI, osvjezi_scenarije  # noqa: E402
 from ui.admin import prikazi_admin  # noqa: E402
 from ui.komponente import (PODRUCJA, TEZINE, filter_scenarija,  # noqa: E402
                            je_novo, prikazi_epilog, prikazi_ocjenu,
@@ -38,6 +38,7 @@ from ui.prijava import prikazi_login  # noqa: E402
 from ui.rezultati import prikazi_gdpr_brisanje, prikazi_moje_rezultate  # noqa: E402
 
 stil.primijeni()
+osvjezi_scenarije()
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 if not st.session_state.get("ulogovan"):

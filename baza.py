@@ -798,6 +798,28 @@ def db_scenarij_spremi(sid, podaci):
         return False
 
 
+def db_scenarij_azuriraj(sid, polja):
+    """Mijenja samo data polja postojeceg scenarija.
+
+    Za djelimicnu izmjenu ne valja upsert: Postgres ga pokusa kao INSERT i odbije
+    red bez `naziv` (NOT NULL) prije nego dodje do ON CONFLICT. Tako se epilog
+    generisao, placao i nikad nije spremio.
+    """
+    if not db:
+        st.error("Baza podataka nije dostupna.")
+        return False
+    try:
+        r = db.table("scenarios").update(polja).eq("id", sid).execute()
+        _ucitaj_db_scenarije.clear()
+        if not r.data:
+            st.error(f"Scenarij '{sid}' nije pronađen u bazi — ništa nije spremljeno.")
+            return False
+        return True
+    except Exception as e:
+        st.error(f"DB greška (scenarij): {e}")
+        return False
+
+
 def db_scenarij_aktivan(sid, aktivan):
     if not db:
         return False

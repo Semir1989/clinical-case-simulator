@@ -4,7 +4,7 @@ Scenariji iz Supabasea nadjacavaju ugradjene ako dijele isti id.
 """
 from baza import _ucitaj_db_scenarije
 
-SCENARIJI = {
+UGRADJENI = {
     "scenarij_1": {
         "naziv": "Scenarij 1 — Trudnica i topikalni kortikosteroidi",
         "ime": "Lejla",
@@ -93,4 +93,22 @@ KAZNA: preporucio nastavak uzimanja biljnog dodatka = 0/10 za Sigurnost; preporu
 }
 
 # ─── AI ───────────────────────────────────────────────────────────────────────
-SCENARIJI.update(_ucitaj_db_scenarije())
+SCENARIJI = {}
+
+
+def osvjezi_scenarije():
+    """Puni SCENARIJI iz koda i baze — poziva se na svakom rerunu.
+
+    Modul se uvozi jednom po procesu, pa bi punjenje samo pri uvozu zamrznulo
+    listu do restarta servera: admin aktivira scenarij, baza se promijeni, a
+    niko ga ne vidi. Rjecnik se mijenja NA MJESTU jer ga drugi moduli drze
+    preko `from scenariji import SCENARIJI`. Citanje baze je kesirano, a admin
+    akcije kes brisu, pa je promjena vidljiva odmah.
+    """
+    novi = {**UGRADJENI, **_ucitaj_db_scenarije()}
+    for sid in [k for k in SCENARIJI if k not in novi]:
+        SCENARIJI.pop(sid, None)
+    SCENARIJI.update(novi)
+
+
+osvjezi_scenarije()

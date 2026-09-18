@@ -13,7 +13,8 @@ from baza import (db_neodobreni_korisnici, db_objava_aktivna, db_objava_nova,
                   db_pokusaji_korisnika, db_postavi_suspenziju,
                   db_postavi_ulogu, db_resetuj_lozinku,
                   db_restartuj_scenarij, db_rijesi_zalbu,
-                  db_scenarij_aktivan, db_scenarij_obrisi, db_scenarij_spremi,
+                  db_scenarij_aktivan, db_scenarij_azuriraj, db_scenarij_obrisi,
+                  db_scenarij_spremi,
                   db_statistika, db_svi_korisnici, db_svi_pokusaji_export,
                   je_admin, napravi_csv)
 from konfig import (zabiljezi_gresku, ADMIN_EMAIL, CIJENA_IZLAZ_USD, CIJENA_ULAZ_USD,
@@ -613,8 +614,8 @@ def prikazi_admin():
                     with st.spinner("Piše epilog i uzoran razgovor..."):
                         epilog, uzoran = generisi_epilog({**s, "id": sid})
                     if epilog and uzoran:
-                        if db_scenarij_spremi(sid, {"epilog": epilog,
-                                                    "uzoran_razgovor": uzoran}):
+                        if db_scenarij_azuriraj(sid, {"epilog": epilog,
+                                                      "uzoran_razgovor": uzoran}):
                             st.session_state["admin_flash"] = (
                                 f"Epilog i uzoran razgovor spremljeni za '{s.get('naziv', sid)}'.")
                             st.rerun()

@@ -106,13 +106,27 @@ DNEVNI_LIMIT_PORUKA = 60  # max AI poruka po korisniku dnevno (kontrola troškov
 # prednost u cijeni), ali je izmisljao poricanja ("mokraca? pa normalna je" iako
 # je u cinjenicama tamna) i sam iznosio skrivene cinjenice bez pitanja. To rusi
 # cijelu mehaniku okidaca, pa usteda ne dolazi u obzir.
-MODEL_PACIJENT = "claude-sonnet-4-6"
-MODEL_EVALUATOR = "claude-sonnet-4-6"
-MODEL_GENERATOR = "claude-sonnet-4-6"
+#
+# Prelazak na Sonnet 5.5 mjeren 14. 10. 2026. (test_ponasanja + izmjeri.py,
+# 4.6 protiv 5.5): pacijent bez razmišljanja jednako realan, 2-4 s umjesto
+# 3-9 s; evaluator na medium odstupa 0,45 od reference (4.6: 0,65) i ocjenjuje
+# za ~14 s umjesto ~41 s. Na 5.5 temperature se ne smije slati (400), a ni
+# prisilni tool_choice — zato evaluator ide s "auto" i provjerom poziva alata.
+MODEL_PACIJENT = "claude-sonnet-5-5"
+MODEL_EVALUATOR = "claude-sonnet-5-5"
+MODEL_GENERATOR = "claude-sonnet-5-5"
 
-# Procjena troška — claude-sonnet cijene po tokenu (USD)
-CIJENA_ULAZ_USD = 3.00 / 1_000_000
-CIJENA_IZLAZ_USD = 15.00 / 1_000_000
+# Razmišljanje po ulozi. Pacijent ga ne treba: s adaptive/low bio je skuplji i
+# sporiji, a ne bolji. "between_tools" je najniža postavka na 5.5 ("disabled"
+# vraća 400) i radi samo do effort high.
+THINKING_PACIJENT = {"type": "between_tools"}
+EFFORT_EVALUATOR = "medium"   # low je bio malo tačniji, ali manje stabilan između ponavljanja
+EFFORT_GENERATOR = "high"     # nije mjereno — ostaje zadana vrijednost modela
+
+# Procjena troška — Sonnet 5.5 cijene po tokenu (USD). Novi tokenizer daje ~30%
+# više tokena za isti tekst, pa je stvarna ušteda manja od razlike u cijeni.
+CIJENA_ULAZ_USD = 2.00 / 1_000_000
+CIJENA_IZLAZ_USD = 10.00 / 1_000_000
 
 # ─── Jezik ────────────────────────────────────────────────────────────────────
 # Ulazi u SVA tri sistemska prompta (pacijent, evaluator, generator). Bez ovoga

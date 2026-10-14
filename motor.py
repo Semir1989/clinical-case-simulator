@@ -5,7 +5,7 @@ import json
 import streamlit as st
 
 from konfig import (JEZIK_PRAVILO, MAX_POTEZA, zabiljezi_gresku, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
-                    ai)
+                    EFFORT_EVALUATOR, EFFORT_GENERATOR, THINKING_PACIJENT, ai)
 from baza import ISPIT, db_log_upotrebu, db_spremi
 from ocjena import izvuci_json, provjeri_kriterije, provjeri_ocjenu
 from rubrika import shema_alata, za_scenarij as rubrika_za_scenarij
@@ -23,6 +23,15 @@ PERSONA_OPISI = {
     "porodica": "Porodica i okolnosti: {v}",
     "odnos_prema_lijekovima": "Odnos prema lijekovima: {v}",
 }
+
+
+def tekst_odgovora(r):
+    """Spaja tekstualne blokove odgovora.
+
+    Na Sonnetu 5.5 odgovor može početi blokom razmišljanja (thinking), pa
+    r.content[0].text više nije pouzdano mjesto teksta.
+    """
+    return "".join(b.text for b in r.content if b.type == "text")
 
 
 def zabiljezi_potrosnju(dogadjaj, usage, scenarij=None):
@@ -155,11 +164,11 @@ def pozovi_pacijenta(poruke, sc, prethodno_stanje=None, dodatna_uputa=""):
     if dodatna_uputa:
         sistem = sistem + [{"type": "text", "text": dodatna_uputa}]
     r = ai.messages.create(
-        model=MODEL_PACIJENT, max_tokens=500,
+        model=MODEL_PACIJENT, max_tokens=800, thinking=THINKING_PACIJENT,
         system=sistem, messages=sa_kesom(poruke),
     )
     zabiljezi_potrosnju("poruka", r.usage)
-    sirovi = r.content[0].text
+    sirovi = tekst_odgovora(r)
     cist, novo = izdvoji_stanje(sirovi, prethodno_stanje)
     return cist, novo, sirovi
 
@@ -178,7 +187,8 @@ def pozovi_pacijenta_stream(poruke, sc, prethodno_stanje=None, na_dio=None):
     sistem = napravi_system_prompt(sc)
     sirovi = ""
     try:
-        with ai.messages.stream(model=MODEL_PACIJENT, max_tokens=500,
+        with ai.messages.stream(model=MODEL_PACIJENT, max_tokens=800,
+                                thinking=THINKING_PACIJENT,
                                 system=sistem, messages=sa_kesom(poruke)) as tok:
             for dio in tok.text_stream:
                 sirovi += dio
@@ -238,12 +248,13 @@ TRANSKRIPT:
 Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, tačno ovog oblika:
 {EVALUATOR_SHEMA}"""
     r = ai.messages.create(
-        model=MODEL_EVALUATOR, max_tokens=3000, temperature=0,
+        model=MODEL_EVALUATOR, max_tokens=16000,
+        output_config={"effort": EFFORT_EVALUATOR},
         system=EVALUATOR_SISTEM,
         messages=[{"role": "user", "content": prompt}],
     )
     zabiljezi_potrosnju("evaluacija", r.usage)
-    return r.content[0].text
+    return tekst_odgovora(r)
 
 
 def pozovi_evaluatora_v2(transkript, sc, rub, broj_poteza=MAX_POTEZA, stanja=None):
@@ -277,18 +288,23 @@ Presudi svaki kriterij alatom "ocijeni". Svaki DA i DJELIMICNO nosi doslovan cit
     # Alati i sistemski prompt su isti za svaki pokusaj istog scenarija, a
     # kesiranje pokriva prefiks (alati -> sistem -> poruke), pa jedan prekid na
     # sistemu kesira i shemu alata. Mijenja se samo transkript.
-    r = ai.messages.create(
-        model=MODEL_EVALUATOR, max_tokens=4000, temperature=0,
-        system=[{"type": "text", "text": EVALUATOR_SISTEM_V2,
-                 "cache_control": {"type": "ephemeral"}}],
-        tools=[alat],
-        tool_choice={"type": "tool", "name": "ocijeni"},
-        messages=[{"role": "user", "content": prompt}],
-    )
-    zabiljezi_potrosnju("evaluacija", r.usage)
-    for blok in r.content:
-        if blok.type == "tool_use":
-            return blok.input
+    # Sonnet 5.5 ne prima prisilni tool_choice ("tool"/"any" vraća 400), pa se
+    # alat traži iz prompta, a poziv provjerava. Ako ga model preskoči, jedan
+    # ponovni pokušaj; u mjerenju 14. 10. 2026. alat je pozvan 12/12 puta.
+    for _ in range(2):
+        r = ai.messages.create(
+            model=MODEL_EVALUATOR, max_tokens=16000,
+            output_config={"effort": EFFORT_EVALUATOR},
+            system=[{"type": "text", "text": EVALUATOR_SISTEM_V2,
+                     "cache_control": {"type": "ephemeral"}}],
+            tools=[alat],
+            tool_choice={"type": "auto"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        zabiljezi_potrosnju("evaluacija", r.usage)
+        for blok in r.content:
+            if blok.type == "tool_use" and blok.name == "ocijeni":
+                return blok.input
     return None
 
 
@@ -340,7 +356,8 @@ Vrati ISKLJUČIVO validan JSON bez teksta prije ili poslije, tačno ovog oblika:
 {EPILOG_SHEMA}"""
     try:
         r = ai.messages.create(
-            model=MODEL_GENERATOR, max_tokens=2000, temperature=0.4,
+            model=MODEL_GENERATOR, max_tokens=16000,
+            output_config={"effort": EFFORT_GENERATOR},
             system=EPILOG_SISTEM,
             messages=[{"role": "user", "content": prompt}],
         )
@@ -349,7 +366,7 @@ Vrati ISKLJUČIVO validan JSON bez teksta prije ili poslije, tačno ovog oblika:
         return None, None
 
     zabiljezi_potrosnju("epilog", r.usage, sc.get("id", ""))
-    podaci = izvuci_json(r.content[0].text) or {}
+    podaci = izvuci_json(tekst_odgovora(r)) or {}
     return podaci.get("epilog"), podaci.get("uzoran_razgovor")
 
 
@@ -364,7 +381,8 @@ def generisi_scenarij_iz_pdfa(pdf_bytes, tezina, smjernice):
         + "Analiziraj priloženi case report i kreiraj scenarij prema uputama."
     )
     r = ai.messages.create(
-        model=MODEL_GENERATOR, max_tokens=8000,
+        model=MODEL_GENERATOR, max_tokens=16000,
+        output_config={"effort": EFFORT_GENERATOR},
         system=GENERATOR_SISTEM,
         messages=[{
             "role": "user",
@@ -379,7 +397,7 @@ def generisi_scenarij_iz_pdfa(pdf_bytes, tezina, smjernice):
     )
     db_log_upotrebu("generisanje_scenarija", "",
                     r.usage.input_tokens, r.usage.output_tokens)
-    return izvuci_json(r.content[0].text)
+    return izvuci_json(tekst_odgovora(r))
 
 
 def sljedeci_scenarij_id():

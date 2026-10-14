@@ -18,8 +18,8 @@ from dotenv import load_dotenv                      # noqa: E402
 from supabase import create_client                  # noqa: E402
 
 load_dotenv(".env")
-from konfig import MODEL_PACIJENT, ai               # noqa: E402
-from motor import napravi_system_prompt             # noqa: E402
+from konfig import MODEL_PACIJENT, THINKING_PACIJENT, ai  # noqa: E402
+from motor import napravi_system_prompt, tekst_odgovora  # noqa: E402
 
 _db = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
 
@@ -84,9 +84,10 @@ def pokreni(t):
     zadnji = ""
     for p in poruke:
         historija.append({"role": "user", "content": p})
-        r = ai.messages.create(model=MODEL_PACIJENT, max_tokens=400,
+        r = ai.messages.create(model=MODEL_PACIJENT, max_tokens=800,
+                               thinking=THINKING_PACIJENT,
                                system=sistem, messages=historija)
-        zadnji = r.content[0].text
+        zadnji = tekst_odgovora(r)
         historija.append({"role": "assistant", "content": zadnji})
         print(f"\n  Farmaceut: {p}")
         print(f"  Pacijent:  {zadnji}")

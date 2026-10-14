@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.getcwd())
 import rubrika                                          # noqa: E402
-from konfig import MAX_POTEZA, MODEL_EVALUATOR          # noqa: E402
+from konfig import EFFORT_EVALUATOR, MAX_POTEZA, MODEL_EVALUATOR  # noqa: E402
 from ocjena import _normalizuj, provjeri_kriterije, provjeri_ocjenu  # noqa: E402
 from promptovi import (EVALUATOR_SHEMA, EVALUATOR_SISTEM,  # noqa: E402
                        EVALUATOR_SISTEM_V2)
@@ -100,19 +100,23 @@ def ocijeni_v2(ai, sc, s, rub):
               f"(poruka). Vidi pravilo 3.\n\nTRANSKRIPT:\n{s['transkript']}\n\n"
               f"Presudi svaki kriterij alatom \"ocijeni\". Svaki DA i DJELIMICNO nosi "
               f"doslovan citat.")
-    r = ai.messages.create(
-        model=MODEL_EVALUATOR, max_tokens=4000, temperature=0,
-        system=EVALUATOR_SISTEM_V2,
-        tools=[{"name": "ocijeni",
-                "description": "Presuda po svakom kriteriju rubrike, s dokazom iz transkripta.",
-                "input_schema": rubrika.shema_alata(rub)}],
-        tool_choice={"type": "tool", "name": "ocijeni"},
-        messages=[{"role": "user", "content": poruka}],
-    )
-    for blok in r.content:
-        if blok.type == "tool_use":
-            return provjeri_kriterije(blok.input, s["transkript"], rub)
-    sys.exit("Model nije pozvao alat — provjeri shemu.")
+    # Isti poziv kao motor.pozovi_evaluatora_v2: bez prisilnog tool_choice
+    # (400 na Sonnetu 5.5) i s jednim ponovnim pokušajem ako alat izostane.
+    for _ in range(2):
+        r = ai.messages.create(
+            model=MODEL_EVALUATOR, max_tokens=16000,
+            output_config={"effort": EFFORT_EVALUATOR},
+            system=EVALUATOR_SISTEM_V2,
+            tools=[{"name": "ocijeni",
+                    "description": "Presuda po svakom kriteriju rubrike, s dokazom iz transkripta.",
+                    "input_schema": rubrika.shema_alata(rub)}],
+            tool_choice={"type": "auto"},
+            messages=[{"role": "user", "content": poruka}],
+        )
+        for blok in r.content:
+            if blok.type == "tool_use" and blok.name == "ocijeni":
+                return provjeri_kriterije(blok.input, s["transkript"], rub)
+    sys.exit("Model nije pozvao alat ni u drugom pokušaju — provjeri shemu.")
 
 
 def _ispisi(s, rez):
@@ -179,10 +183,11 @@ def main():
                   f"Vrati ISKLJUČIVO validan JSON bez ikakvog teksta prije ili poslije, "
                   f"tačno ovog oblika:\n{EVALUATOR_SHEMA}")
 
-        r = ai.messages.create(model=MODEL_EVALUATOR, max_tokens=3000, temperature=0,
+        r = ai.messages.create(model=MODEL_EVALUATOR, max_tokens=16000,
+                               output_config={"effort": EFFORT_EVALUATOR},
                                system=EVALUATOR_SISTEM,
                                messages=[{"role": "user", "content": poruka}])
-        tekst = r.content[0].text
+        tekst = "".join(b.text for b in r.content if b.type == "text")
         rez = json.loads(tekst[tekst.find("{"):tekst.rfind("}") + 1])
         rez = provjeri_ocjenu(rez, s["transkript"])
 

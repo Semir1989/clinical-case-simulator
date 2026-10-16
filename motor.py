@@ -4,7 +4,7 @@ import json
 
 import streamlit as st
 
-from konfig import (JEZIK_PRAVILO, MAX_POTEZA, zabiljezi_gresku, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
+from konfig import (aktivni_email, aktivni_scenarij, JEZIK_PRAVILO, MAX_POTEZA, zabiljezi_gresku, MODEL_EVALUATOR, MODEL_GENERATOR, MODEL_PACIJENT,
                     EFFORT_EVALUATOR, EFFORT_GENERATOR, THINKING_PACIJENT, ai)
 from baza import ISPIT, db_log_upotrebu, db_spremi
 from ocjena import izvuci_json, provjeri_kriterije, provjeri_ocjenu
@@ -46,7 +46,7 @@ def zabiljezi_potrosnju(dogadjaj, usage, scenarij=None):
     citanje = getattr(usage, "cache_read_input_tokens", 0) or 0
     ulaz_ekvivalent = round((usage.input_tokens or 0) + upis * 1.25 + citanje * 0.10)
     if scenarij is None:
-        scenarij = st.session_state.get("odabrani_scenarij", "")
+        scenarij = aktivni_scenarij()
     db_log_upotrebu(dogadjaj, scenarij, ulaz_ekvivalent, usage.output_tokens)
 
 
@@ -308,7 +308,12 @@ Presudi svaki kriterij alatom "ocijeni". Svaki DA i DJELIMICNO nosi doslovan cit
     return None
 
 
-def pokreni_evaluaciju(stanje, sc, sc_id, mode=ISPIT):
+def ocijeni_razgovor(stanje, sc, sc_id, mode=ISPIT, email=None):
+    """Ocjena i upis pokušaja, bez ijednog Streamlit poziva — zove je i API.
+
+    Vraća rezultat ili None. Pri uspjehu upisuje pokušaj i postavlja
+    stanje["ocjena"] i stanje["zavrseno"].
+    """
     transkript = "\n".join(
         f"{'Farmaceut' if p['role'] == 'user' else 'Pacijent'}: {p['content']}"
         for p in stanje["poruke_prikaz"]
@@ -316,24 +321,30 @@ def pokreni_evaluaciju(stanje, sc, sc_id, mode=ISPIT):
     stanja = stanje.get("stanja") or []
     rub = rubrika_za_scenarij(sc, sc_id)
 
-    with st.spinner("Analizira savjetovanje..."):
-        if rub:
-            sirovo = pozovi_evaluatora_v2(transkript, sc, rub, MAX_POTEZA, stanja)
-            rezultat = provjeri_kriterije(sirovo, transkript, rub) if sirovo else None
-        else:
-            # Scenarij bez rubrike koju umijemo raščlaniti — stari put.
-            rezultat = izvuci_json(pozovi_evaluatora(transkript, sc, MAX_POTEZA, stanja))
-            if rezultat:
-                rezultat = provjeri_ocjenu(rezultat, transkript)
+    if rub:
+        sirovo = pozovi_evaluatora_v2(transkript, sc, rub, MAX_POTEZA, stanja)
+        rezultat = provjeri_kriterije(sirovo, transkript, rub) if sirovo else None
+    else:
+        # Scenarij bez rubrike koju umijemo raščlaniti — stari put.
+        rezultat = izvuci_json(pozovi_evaluatora(transkript, sc, MAX_POTEZA, stanja))
+        if rezultat:
+            rezultat = provjeri_ocjenu(rezultat, transkript)
 
     if rezultat:
         stanje["ocjena"] = rezultat
         stanje["zavrseno"] = True
-        db_spremi(st.session_state.get("korisnik_email", ""), sc_id, rezultat, transkript,
-                  stanja, mode)
+        db_spremi(email if email is not None else aktivni_email(), sc_id, rezultat,
+                  transkript, stanja, mode)
     else:
-        st.error("Greška pri analizi ocjene. Pokušaj ponovo.")
         stanje["zavrseno"] = False
+    return rezultat
+
+
+def pokreni_evaluaciju(stanje, sc, sc_id, mode=ISPIT):
+    with st.spinner("Analizira savjetovanje..."):
+        rezultat = ocijeni_razgovor(stanje, sc, sc_id, mode)
+    if not rezultat:
+        st.error("Greška pri analizi ocjene. Pokušaj ponovo.")
 
 
 def generisi_epilog(sc):

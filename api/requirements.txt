@@ -1,0 +1,6 @@
+# Komunikator API — uz osnovne zavisnosti simulatora (../requirements.txt)
+-r ../requirements.txt
+fastapi==0.118.0
+uvicorn==0.37.0
+PyJWT==2.10.1
+httpx==0.28.1

@@ -5,6 +5,7 @@ redoslijed uvoza uvijek jednosmjeran: konfig -> baza/posta -> promptovi ->
 motor/ocjena -> scenariji -> ui -> app.
 """
 import os
+from contextvars import ContextVar
 
 import streamlit as st
 from anthropic import Anthropic
@@ -84,6 +85,38 @@ def zabiljezi_gresku(e):
         sentry_sdk.capture_exception(e)
     except Exception:
         pass
+
+
+# ─── Ko je trenutno aktivan ──────────────────────────────────────────────────
+# Streamlit drzi korisnika u st.session_state, a API (Komunikator) nema sesiju —
+# svaki zahtjev postavlja svoj kontekst. Bez ovoga bi usage_log iz API-ja
+# upisivao prazan email, a dnevni limit poruka bi brojao nulu.
+_AKTIVNI = ContextVar("aktivni", default=None)
+
+
+def postavi_aktivnog(email, scenarij=""):
+    """API poziva ovo na pocetku zahtjeva. Vraca token za ponistavanje."""
+    return _AKTIVNI.set({"email": email or "", "scenarij": scenarij or ""})
+
+
+def aktivni_email():
+    a = _AKTIVNI.get()
+    if a is not None:
+        return a["email"]
+    try:
+        return st.session_state.get("korisnik_email", "")
+    except Exception:      # van Streamlita (API, skripte) sesije nema
+        return ""
+
+
+def aktivni_scenarij():
+    a = _AKTIVNI.get()
+    if a is not None:
+        return a["scenarij"]
+    try:
+        return st.session_state.get("odabrani_scenarij", "")
+    except Exception:
+        return ""
 
 
 # Broj poteza je i pedagoska i troskovna odluka: svaki potez nosi cijelu

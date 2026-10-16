@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import streamlit as st
 
-from konfig import ADMIN_EMAIL, KONTAKT_EMAIL, db, zabiljezi_gresku
+from konfig import ADMIN_EMAIL, KONTAKT_EMAIL, aktivni_email, db, zabiljezi_gresku
 
 # ─── Lozinke ─────────────────────────────────────────────────────────────────
 # Do septembra 2026. lozinke su čuvane kao goli SHA-256 bez soli — takav hash se
@@ -328,6 +328,35 @@ def db_dohvati_transkript(email, scenario_id, mode=ISPIT):
     return ""
 
 
+def db_korisnik(email):
+    """Red korisnika ili None. API ga čita na svakom zahtjevu, da odobrenje,
+    suspenzija i rok članarine važe odmah, a ne tek kad token istekne."""
+    if not db or not email:
+        return None
+    try:
+        r = db.table("users").select("*").eq("email", email.lower().strip()).execute()
+        return r.data[0] if r.data else None
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return None
+
+
+def db_pokusaj(email, scenario_id, mode=ISPIT):
+    """Posljednji pokušaj scenarija s ocjenom, transkriptom i stanjima — ili None."""
+    if not db:
+        return None
+    try:
+        r = (db.table("attempts")
+             .select("id, score, result_json, transcript, stanje_json, completed_at, "
+                     "appeal_status, appeal_text, appeal_response")
+             .eq("user_email", email).eq("scenario_id", scenario_id).eq("mode", mode)
+             .order("completed_at", desc=True).limit(1).execute())
+        return r.data[0] if r.data else None
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return None
+
+
 def db_moji_rezultati(email):
     if not db:
         return []
@@ -383,6 +412,11 @@ def db_spremi_napredak(email, scenario_id, stanje, mode=ISPIT):
             "poruke_prikaz": stanje.get("poruke_prikaz") or [],
             "stanja": stanje.get("stanja") or [],
             "zadnje_stanje": stanje.get("zadnje_stanje"),
+            # Tajmer ispita u Komunikatoru racuna server iz ovog polja. Streamlit
+            # ga pri ucitavanju namjerno ignorise i krece odbrojavanje iznova.
+            **({"zadnji_potez_vrijeme": datetime.fromtimestamp(
+                stanje["zadnji_potez_vrijeme"], timezone.utc).isoformat()}
+               if isinstance(stanje.get("zadnji_potez_vrijeme"), (int, float)) else {}),
             "azurirano_at": datetime.now(timezone.utc).isoformat(),
         }, on_conflict="user_email,scenario_id,mode").execute()
     except Exception as e:
@@ -706,7 +740,7 @@ def db_log_upotrebu(event, scenario_id="", tokens_in=0, tokens_out=0):
         return
     try:
         db.table("usage_log").insert({
-            "user_email": st.session_state.get("korisnik_email", ""),
+            "user_email": aktivni_email(),
             "event": event,
             "scenario_id": scenario_id,
             "tokens_in": int(tokens_in),

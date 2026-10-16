@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -r api/requirements.txt
 # Samo moduli koje API stvarno uvozi — bez UI-ja, skripti, kalibracije i scenario/.
 COPY konfig.py baza.py posta.py promptovi.py motor.py ocjena.py rubrika.py \
      stanje.py scenariji.py ./
-COPY api/__init__.py api/javno.py api/main.py ./api/
+COPY api/__init__.py api/javno.py api/main.py api/admin.py ./api/
 
 # Ključevi dolaze kao varijable okruženja Cloud Runa, nikad iz slike.
 CMD exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8080} --timeout-keep-alive 75

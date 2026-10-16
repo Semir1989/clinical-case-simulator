@@ -30,7 +30,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from konfig import DNEVNI_LIMIT_PORUKA, MAX_POTEZA, postavi_aktivnog, zabiljezi_gresku
-from baza import (ISPIT, db_korisnici_za_obavijest, db_korisnik, db_log_upotrebu,
+from baza import (ISPIT, _ucitaj_objave, db_korisnici_za_obavijest, db_korisnik, db_log_upotrebu,
                   db_oznaci_obavijest, db_postavi_obavijesti, db_scenariji_obavijesti, db_login, db_leaderboard,
                   db_moji_rezultati, db_obrisi_napredak, db_obrisi_sve_podatke, db_pokusaj,
                   db_poruka_danas, db_posalji_zalbu, db_registruj, db_spremi_napredak,
@@ -40,6 +40,7 @@ from posta import email_novi_slucaj, posalji_emailove_skupno
 from motor import ocijeni_razgovor, pozovi_pacijenta_stream, zatvori_razgovor
 from scenariji import SCENARIJI, osvjezi_scenarije
 
+from api.admin import napravi_ruter
 from api.javno import (TAJMER_SEKUNDI, clanarina_vazi, javna_ljestvica, javni_korisnik,
                        javni_rezultat, javni_scenarij, javno_stanje, primijeni_tajmer)
 
@@ -582,3 +583,15 @@ def admin_posalji_obavijest(sid: str, z: Slanje, k=Depends(admin)):
     if not poslano:
         raise HTTPException(502, "Slanje nije uspjelo: " + "; ".join(greske))
     return {"poslano": poslano, "ukupno": len(poruke), "greske": greske}
+
+
+# ─── Objave za članove i admin ───────────────────────────────────────────────
+
+@app.get("/objave")
+def objave(k=Depends(korisnik)):
+    """Aktivne objave admina — traka na vrhu liste slučajeva (isto kao u Streamlitu)."""
+    return {"objave": [{"id": o["id"], "tekst": o.get("tekst", ""), "tip": o.get("tip") or "info"}
+                       for o in _ucitaj_objave()]}
+
+
+app.include_router(napravi_ruter(korisnik))

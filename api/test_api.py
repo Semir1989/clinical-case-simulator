@@ -200,6 +200,54 @@ provjeri(klijent.post("/admin/obavijesti/test_1", headers=ha, json={}).status_co
 provjeri(klijent.post("/ja/obavijesti", headers=h, json={"email": False}).status_code in (200, 500),
          "postavka obavijesti postoji")
 
+print("Admin")
+import api.admin as adm  # noqa: E402
+CEKA = [{"email": "novi@test.ba", "full_name": "Novi Član", "approved": False}]
+ODOBRENI, CLAN_DO, MAILOVI = [], {}, []
+adm.db_neodobreni_korisnici = lambda: [u for u in CEKA if u["email"] not in ODOBRENI]
+adm.db_odobri_korisnika = lambda e: ODOBRENI.append(e) or True
+adm.posalji_email_odobrenje = lambda e, ime: (MAILOVI.append(e) or True, "ok")
+adm.db_otvorene_zalbe = lambda: []
+for put in ("/admin/pregled", "/admin/zahtjevi", "/admin/korisnici", "/admin/statistika", "/admin/zalbe",
+            "/admin/objave", "/admin/izvoz/rezultati"):
+    provjeri(klijent.get(put, headers=h).status_code == 403, f"član ne smije: {put}")
+provjeri(klijent.post("/admin/email/probni", headers=h, json={"email": "x@y.ba"}).status_code == 403,
+         "član ne smije slati probni email")
+
+
+class _Tabela:
+    """Minimalna zamjena za db.table('users') u postavi_clan_do."""
+    def __init__(self):
+        self._v = None
+    def update(self, v):
+        self._v = v
+        return self
+    def eq(self, _k, email):
+        CLAN_DO[email] = self._v.get("clan_do")
+        return self
+    def execute(self):
+        return self
+
+
+class _Db:
+    def table(self, _ime):
+        return _Tabela()
+
+
+adm.db = _Db()
+r = klijent.post("/admin/zahtjevi/odobri", headers=ha,
+                 json={"emailovi": ["novi@test.ba", "nepoznat@test.ba"], "clan_do": "2027-10-15"})
+rez = {x["email"]: x for x in r.json()["rezultati"]}
+provjeri(rez["novi@test.ba"]["ok"] and ODOBRENI == ["novi@test.ba"] and MAILOVI == ["novi@test.ba"],
+         "odobravanje upisuje i šalje mail samo onom ko čeka")
+provjeri(CLAN_DO.get("novi@test.ba") == "2027-10-15", "rok članarine se upisuje pri odobravanju")
+provjeri(not rez["nepoznat@test.ba"]["ok"], "email koji ne čeka se ne odobrava")
+provjeri(klijent.post("/admin/zahtjevi/odobri", headers=ha,
+                      json={"emailovi": ["novi@test.ba"], "clan_do": "15.10.2027"}).status_code in (200, 400),
+         "pogrešan format datuma ne ruši server")
+provjeri(klijent.post("/admin/korisnici/info@farmaceutupraksi.ba/suspenzija", headers=ha,
+                      json={"suspendovan": True}).status_code == 400, "glavni admin se ne može suspendovati")
+
 print()
 print("SVE PROŠLO" if not greske else f"PALO: {len(greske)}")
 sys.exit(1 if greske else 0)

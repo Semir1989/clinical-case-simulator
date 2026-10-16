@@ -17,6 +17,7 @@ from konfig import zabiljezi_gresku
 # Pošiljalac mora biti potvrđen u Brevu (Senders) — inače Brevo odbija slanje.
 POSILJALAC_EMAIL = "info@farmaceutupraksi.ba"
 POSILJALAC_IME = "Edu Pharma Community"
+KOMUNIKATOR_URL = "https://simulator.farmaceutupraksi.ba"
 
 
 # ─── Email notifikacije (Brevo) ──────────────────────────────────────────────
@@ -69,7 +70,8 @@ def email_okvir(sadrzaj_html):
     return f"""
     <div style="font-family:Inter,sans-serif;max-width:520px;margin:0 auto;padding:32px">
         <div style="text-align:center;margin-bottom:24px">
-            <h2 style="color:#1E3A8A;margin:0">Clinical Case Simulator</h2>
+            <img src="{KOMUNIKATOR_URL}/epc-logo.png" alt="Edu Pharma Community" width="64" style="width:64px;height:auto">
+            <h2 style="color:#0D8A9E;margin:8px 0 0">Komunikator</h2>
             <p style="color:#64748b;margin:4px 0 0">Edu Pharma Community</p>
         </div>
         {sadrzaj_html}
@@ -90,13 +92,19 @@ def posalji_email_odobrenje(korisnik_email, korisnik_ime):
             Poštovani/a <strong>{korisnik_ime}</strong>,
         </p>
         <p style="color:#1e293b;font-size:15px;line-height:1.6">
-            Vaš nalog na platformi <strong>Clinical Case Simulator</strong> je odobren.
-            Sada se možete prijaviti i započeti rad na kliničkim scenarijima.
+            Vaš nalog u <strong>Komunikatoru</strong> je odobren.
+            Prijavite se emailom i lozinkom koje ste upisali u zahtjevu.
+        </p>
+        <p style="text-align:center;margin:24px 0">
+            <a href="{KOMUNIKATOR_URL}/#/prijava" style="background:#0D8A9E;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:10px;display:inline-block">Otvori Komunikator</a>
+        </p>
+        <p style="color:#64748b;font-size:13px;line-height:1.6">
+            Na telefonu ga možete instalirati kao aplikaciju — uputstvo se pojavi čim otvorite stranicu.
         </p>
     """
     return posalji_email(
         korisnik_email,
-        "Vaš nalog je odobren — Clinical Case Simulator",
+        "Vaš nalog je odobren — Komunikator",
         email_okvir(sadrzaj),
     )
 
@@ -117,7 +125,6 @@ def posalji_email_masovni(to_email, korisnik_ime, subject, poruka_tekst):
 # Šalje je admin dugmetom u Komunikatoru (nikad automatski pri otključavanju):
 # jedan pogrešan klik u adminu ne smije otići svim članovima. Svaki primalac
 # dobija svoj email — niko ne vidi tuđe adrese.
-KOMUNIKATOR_URL = "https://simulator.farmaceutupraksi.ba"
 
 
 def _esc(t):

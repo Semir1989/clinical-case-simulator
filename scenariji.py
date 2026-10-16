@@ -8,17 +8,17 @@ UGRADJENI = {
     "scenarij_1": {
         "naziv": "Scenarij 1 — Trudnica i topikalni kortikosteroidi",
         "ime": "Lejla",
-        "godine": 18,
+        "godine": 24,
         "tegoba": "svrbež i peckanje kože na grudima, dolazi po još Clobetasol kremu",
         "terapija": "vitamini za trudnoću (33. sedmica trudnoće, prva trudnoća)",
         "skriveni_detalji": (
-            "već 6 mjeseci koristi Zalim losion i Clobetasol 0.05% kremu zajedno svakodnevno; "
+            "već 6 mjeseci koristi kalamin losion s fenolom i Clobetasol 0.05% kremu zajedno svakodnevno; "
             "na koži su se pojavile strije i sjajne mrlje koje pripisuje trudnoći; "
             "nije bila kod ljekara, uzela preparate po preporuci komšinice"
         ),
         "crvene_zastavice": (
             "Clobetasol 0.05% kontraindiciran u trudnoći; "
-            "Zalim losion (fenol) toksičan u trudnoći; "
+            "kalamin losion s fenolom (fenol) toksičan u trudnoći; "
             "6 mjeseci primjene = aktivne nuspojave; hitno uputiti ginekologu i dermatologu"
         ),
         "ocekivano": (

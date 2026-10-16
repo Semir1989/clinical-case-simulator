@@ -328,6 +328,54 @@ def db_dohvati_transkript(email, scenario_id, mode=ISPIT):
     return ""
 
 
+def db_korisnici_za_obavijest():
+    """Svi odobreni, nesuspendovani nalozi koji nisu isključili obavijesti.
+    Rok članarine provjerava pozivalac (api/javno.clanarina_vazi)."""
+    if not db:
+        return []
+    try:
+        r = (db.table("users").select("email, full_name, role, clan_do, approved, suspended, obavijesti_email")
+             .eq("approved", True).execute())
+        return [u for u in r.data or [] if not u.get("suspended") and u.get("obavijesti_email", True)]
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return []
+
+
+def db_postavi_obavijesti(email, ukljuceno):
+    if not db:
+        return False
+    try:
+        db.table("users").update({"obavijesti_email": bool(ukljuceno)}).eq("email", email).execute()
+        return True
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return False
+
+
+def db_scenariji_obavijesti():
+    """id → obavijest_poslana_at (ISO ili None), za admin ekran Komunikatora."""
+    if not db:
+        return {}
+    try:
+        r = db.table("scenarios").select("id, obavijest_poslana_at").execute()
+        return {x["id"]: x.get("obavijest_poslana_at") for x in r.data or []}
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return {}
+
+
+def db_oznaci_obavijest(scenario_id, kada_iso):
+    if not db:
+        return False
+    try:
+        db.table("scenarios").update({"obavijest_poslana_at": kada_iso}).eq("id", scenario_id).execute()
+        return True
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return False
+
+
 def db_korisnik(email):
     """Red korisnika ili None. API ga čita na svakom zahtjevu, da odobrenje,
     suspenzija i rok članarine važe odmah, a ne tek kad token istekne."""

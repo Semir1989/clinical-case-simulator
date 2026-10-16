@@ -19,6 +19,7 @@ import os
 import queue
 import threading
 import time
+import urllib.request
 from contextvars import copy_context
 from datetime import datetime, timedelta, timezone
 
@@ -29,11 +30,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from konfig import DNEVNI_LIMIT_PORUKA, MAX_POTEZA, postavi_aktivnog, zabiljezi_gresku
-from baza import (ISPIT, db_korisnik, db_log_upotrebu, db_login, db_leaderboard,
+from baza import (ISPIT, db_korisnici_za_obavijest, db_korisnik, db_log_upotrebu,
+                  db_oznaci_obavijest, db_postavi_obavijesti, db_scenariji_obavijesti, db_login, db_leaderboard,
                   db_moji_rezultati, db_obrisi_napredak, db_obrisi_sve_podatke, db_pokusaj,
                   db_poruka_danas, db_posalji_zalbu, db_registruj, db_spremi_napredak,
                   db_ucitaj_napredak, db_vec_uradio, db_zavrseni_scenariji, nadimak_slobodan,
                   provjeri_lozinku)
+from posta import email_novi_slucaj, posalji_emailove_skupno
 from motor import ocijeni_razgovor, pozovi_pacijenta_stream, zatvori_razgovor
 from scenariji import SCENARIJI, osvjezi_scenarije
 
@@ -239,9 +242,43 @@ def _zavrsi(stanje, sc, sid, email):
     rezultat = ocijeni_razgovor(stanje, sc, sid, ISPIT, email)
     if rezultat:
         db_obrisi_napredak(email, sid, ISPIT)
+        javi_pharma_questu(email, rezultat, sc, sid)
     else:
         db_spremi_napredak(email, sid, stanje, ISPIT)
     return rezultat
+
+
+# ─── Most prema Pharma Questu ────────────────────────────────────────────────
+# Odluka 15.10.2026: ocjena × 100 XP, jednom mjesečno (prvi završeni ispit u
+# mjesecu). Pravilo „jednom" čuva PQ (komunikatorIsplate), pa se ovdje šalje
+# svaki završeni ispit — PQ sam odbije drugi u istom mjesecu.
+PQ_NAGRADA_URL = os.environ.get(
+    "PQ_NAGRADA_URL", "https://europe-west1-pharma-quest-8c6cc.cloudfunctions.net/komunikatorNagrada")
+PQ_NAGRADA_TAJNA = os.environ.get("PQ_NAGRADA_TAJNA", "")
+
+
+def javi_pharma_questu(email, rezultat, sc, sid):
+    """Bez pada: ocjena je već upisana, pa kvar PQ-a ne smije srušiti odgovor.
+
+    Sinhrono i s kratkim rokom — Cloud Run poslije odgovora oduzima procesor,
+    pa bi nit u pozadini mogla nikad ne završiti.
+    """
+    if not PQ_NAGRADA_TAJNA:
+        return None
+    try:
+        tijelo = json.dumps({
+            "email": email, "ocjena": float(rezultat.get("ukupna_ocjena") or 0),
+            "naziv": (sc or {}).get("naziv", ""), "pokusajId": sid,
+            "zavrseno": datetime.now(timezone.utc).isoformat(),
+        }).encode("utf-8")
+        zahtjev = urllib.request.Request(
+            PQ_NAGRADA_URL, data=tijelo, method="POST",
+            headers={"Content-Type": "application/json", "X-Komunikator-Tajna": PQ_NAGRADA_TAJNA})
+        with urllib.request.urlopen(zahtjev, timeout=5) as odg:
+            return json.loads(odg.read().decode("utf-8") or "{}")
+    except Exception as e:
+        zabiljezi_gresku(e)
+        return None
 
 
 def _sse(dogadjaj, podaci):
@@ -475,3 +512,73 @@ def obrisi_nalog(b: Brisanje, k=Depends(korisnik)):
     if not db_obrisi_sve_podatke(k["email"]):
         raise HTTPException(500, "Brisanje nije uspjelo. Kontaktirajte administratora.")
     return {"poruka": "Nalog i svi podaci su obrisani."}
+
+
+# ─── Obavijesti o novom slučaju ──────────────────────────────────────────────
+
+class Obavijesti(BaseModel):
+    email: bool
+
+
+@app.post("/ja/obavijesti")
+def postavi_obavijesti(o: Obavijesti, k=Depends(korisnik)):
+    if not db_postavi_obavijesti(k["email"], o.email):
+        raise HTTPException(500, "Postavka nije sačuvana. Pokušajte ponovo.")
+    return {"obavijesti_email": o.email}
+
+
+def admin(k=Depends(korisnik)):
+    if k.get("role") != "admin":
+        raise HTTPException(403, "Samo za administratora.")
+    return k
+
+
+def _primaoci():
+    """Članovi kojima ide obavijest: odobreni, nesuspendovani, s važećom
+    članarinom, bez isključenih obavijesti. Admin nalozi se preskaču."""
+    return [u for u in db_korisnici_za_obavijest()
+            if u.get("role") != "admin" and clanarina_vazi(u)]
+
+
+@app.get("/admin/obavijesti")
+def admin_obavijesti(k=Depends(admin)):
+    osvjezi_scenarije()
+    poslano = db_scenariji_obavijesti()
+    return {
+        "primalaca": len(_primaoci()),
+        "slucajevi": [{"id": sid, "naziv": sc.get("naziv", ""), "aktivan": bool(sc.get("aktivan", True)),
+                       "obavijest_poslana": poslano.get(sid)}
+                      for sid, sc in SCENARIJI.items()],
+    }
+
+
+@app.get("/admin/obavijesti/{sid}")
+def admin_pregled_obavijesti(sid: str, k=Depends(admin)):
+    sc = _aktivni_scenarij(sid)
+    naslov, html = email_novi_slucaj("Ime Prezime", sc, sid)
+    return {"naslov": naslov, "html": html, "primalaca": len(_primaoci())}
+
+
+class Slanje(BaseModel):
+    ponovo: bool = False
+
+
+@app.post("/admin/obavijesti/{sid}")
+def admin_posalji_obavijest(sid: str, z: Slanje, k=Depends(admin)):
+    """Šalje svakom primaocu poseban email. Dugme pritiska Semir — nikad se ne
+    šalje samo od sebe pri otključavanju slučaja."""
+    sc = _aktivni_scenarij(sid)
+    if db_scenariji_obavijesti().get(sid) and not z.ponovo:
+        raise HTTPException(409, "Obavijest za ovaj slučaj je već poslana.")
+    poruke = []
+    for u in _primaoci():
+        naslov, html = email_novi_slucaj(u.get("full_name") or "", sc, sid)
+        poruke.append({"to": u["email"], "subject": naslov, "html": html})
+    if not poruke:
+        raise HTTPException(400, "Nema primalaca.")
+    poslano, greske = posalji_emailove_skupno(poruke)
+    if poslano:
+        db_oznaci_obavijest(sid, datetime.now(timezone.utc).isoformat())
+    if not poslano:
+        raise HTTPException(502, "Slanje nije uspjelo: " + "; ".join(greske))
+    return {"poslano": poslano, "ukupno": len(poruke), "greske": greske}

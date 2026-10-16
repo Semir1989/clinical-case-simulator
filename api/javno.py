@@ -43,6 +43,7 @@ def javni_korisnik(k):
         "nadimak": k.get("nadimak") or "",
         "uloga": k.get("role") or "korisnik",
         "clan_do": (str(k["clan_do"])[:10] if k.get("clan_do") else None),
+        "obavijesti_email": k.get("obavijesti_email", True) is not False,
     }
 
 

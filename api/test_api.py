@@ -83,6 +83,8 @@ m.db_poruka_danas = lambda e: 0
 m.pozovi_pacijenta_stream = _lazni_pacijent
 m.zatvori_razgovor = lambda p, sc, z=None: ("Hvala, idem ljekaru.", z, "Hvala, idem ljekaru.")
 m.ocijeni_razgovor = _lazna_ocjena
+PQ_POZIVI = []
+m.javi_pharma_questu = lambda e, r, sc, sid: PQ_POZIVI.append((e, r["ukupna_ocjena"], sid))
 
 klijent = TestClient(m.app)
 greske = []
@@ -155,6 +157,7 @@ provjeri(j["dobro"] and j["propusteno"] and "lose" in j and j["smjernice"],
          "povratna informacija: dobro, loše, propušteno, smjernice")
 provjeri("odbaceno" not in r.text, "interna polja ocjenjivača ne izlaze")
 provjeri(j["epilog"] == "TAJNI_EPILOG", "epilog izlazi tek poslije ocjene")
+provjeri(PQ_POZIVI == [("clan@test.ba", 4.6, "test_1")], "ocjena je javljena Pharma Questu")
 provjeri(klijent.post("/scenariji/test_1/pocni", headers=h).status_code == 409, "drugi pokušaj je odbijen")
 provjeri(klijent.post("/scenariji/test_1/poruka", headers=h, json={"tekst": "x"}).status_code == 409,
          "poruka poslije ocjene je odbijena")
@@ -174,6 +177,28 @@ print("Ljestvica")
 m.db_leaderboard = lambda p: [{"email": "tajni@mail.ba", "ime": "Farmaceut71", "ukupno": 9, "slucajeva": 2, "prosjek": 4.5}]
 r = klijent.get("/ljestvica", headers=h)
 provjeri("tajni@mail.ba" not in r.text and "Farmaceut71" in r.text, "ljestvica bez emaila, samo nadimak")
+
+print("Obavijesti o novom slučaju")
+KORISNICI["admin@test.ba"] = {"email": "admin@test.ba", "approved": True, "role": "admin"}
+SVI = list(KORISNICI.values()) + [
+    {"email": "iskljucio@test.ba", "approved": True, "clan_do": str(DANAS + timedelta(days=9)), "obavijesti_email": False}]
+m.db_korisnici_za_obavijest = lambda: [u for u in SVI if u.get("approved") and u.get("obavijesti_email", True)]
+POSLANO_OBAV, OZNAKE = [], {}
+m.posalji_emailove_skupno = lambda poruke: (POSLANO_OBAV.extend(poruke) or len(poruke), [])
+m.db_scenariji_obavijesti = lambda: dict(OZNAKE)
+m.db_oznaci_obavijest = lambda sid, kada: OZNAKE.__setitem__(sid, kada)
+ha = zaglavlje("admin@test.ba")
+provjeri(klijent.get("/admin/obavijesti", headers=h).status_code == 403, "član ne vidi admin obavijesti")
+r = klijent.get("/admin/obavijesti/test_1", headers=ha)
+provjeri(r.status_code == 200 and r.json()["primalaca"] == 1, "pregled: samo član s važećom članarinom")
+bez_tajni(r.text, "pregled obavijesti")
+r = klijent.post("/admin/obavijesti/test_1", headers=ha, json={})
+provjeri(r.status_code == 200 and [p["to"] for p in POSLANO_OBAV] == ["clan@test.ba"],
+         "šalje se samo važećim članovima (ne istekao, bez roka, neodobren, isključio, admin)")
+provjeri(klijent.post("/admin/obavijesti/test_1", headers=ha, json={}).status_code == 409,
+         "druga obavijest za isti slučaj traži izričito ponovno slanje")
+provjeri(klijent.post("/ja/obavijesti", headers=h, json={"email": False}).status_code in (200, 500),
+         "postavka obavijesti postoji")
 
 print()
 print("SVE PROŠLO" if not greske else f"PALO: {len(greske)}")

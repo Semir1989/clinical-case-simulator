@@ -103,6 +103,17 @@ def _ocijeni(stanje, sc, sid, mode, email):
     return REZ
 
 
+ADMIN = {"email": "admin@test.ba", "full_name": "Admin Test", "approved": True, "role": "admin"}
+_db_korisnik = m.db_korisnik
+m.db_korisnik = lambda e: ADMIN if e == ADMIN["email"] else _db_korisnik(e)
+_db_login = m.db_login
+m.db_login = lambda e, l: (ADMIN, "") if e == ADMIN["email"] and l == "lozinka1" else _db_login(e, l)
+OBAV = {}
+m.db_korisnici_za_obavijest = lambda: [KORISNIK, ADMIN]
+m.db_postavi_obavijesti = lambda e, v: KORISNIK.__setitem__("obavijesti_email", v) or True
+m.db_scenariji_obavijesti = lambda: dict(OBAV)
+m.db_oznaci_obavijest = lambda sid, kada: OBAV.__setitem__(sid, kada)
+m.posalji_emailove_skupno = lambda poruke: (print("LAŽNO SLANJE:", [p["to"] for p in poruke], flush=True) or len(poruke), [])
 m.pozovi_pacijenta_stream = _pacijent
 m.zatvori_razgovor = lambda p, sc, z=None: ("[klimne] Hvala, otići ću ljekaru.", z, "Hvala, otići ću ljekaru.")
 m.ocijeni_razgovor = _ocijeni

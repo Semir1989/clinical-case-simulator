@@ -1,4 +1,10 @@
-"""Slanje emaila preko Resend HTTP API-ja."""
+"""Slanje emaila preko Brevo transakcijskog API-ja.
+
+Do 16.10.2026. je ovdje bio Resend, ali RESEND_API_KEY nikad nije bio podešen,
+pa nijedan email iz aplikacije (odobrenje naloga, masovni) nije stvarno otišao.
+Brevo je već tu: pošiljalac info@farmaceutupraksi.ba je potvrđen, a paket ima
+transakcijske emailove. Šalje se pojedinačno — Brevo liste i kampanje se ne diraju.
+"""
 import json
 import os
 import urllib.error
@@ -8,54 +14,51 @@ import streamlit as st
 
 from konfig import zabiljezi_gresku
 
-# ─── Email notifikacije (Resend) ─────────────────────────────────────────────
-def _resend_postavke():
-    """Ključ i pošiljalac: prvo okruženje (Komunikator API na Cloud Runu), pa
-    Streamlit secrets. Van Streamlita st.secrets baca grešku, ne vraća prazno."""
-    api_key = os.getenv("RESEND_API_KEY", "")
-    from_email = os.getenv("RESEND_FROM", "")
-    if not api_key:
+# Pošiljalac mora biti potvrđen u Brevu (Senders) — inače Brevo odbija slanje.
+POSILJALAC_EMAIL = "info@farmaceutupraksi.ba"
+POSILJALAC_IME = "Edu Pharma Community"
+
+
+# ─── Email notifikacije (Brevo) ──────────────────────────────────────────────
+def _brevo_kljuc():
+    """Prvo okruženje (Komunikator API na Cloud Runu), pa Streamlit secrets.
+    Van Streamlita st.secrets baca grešku, ne vraća prazno."""
+    kljuc = os.getenv("BREVO_API_KEY", "")
+    if not kljuc:
         try:
-            api_key = st.secrets.get("RESEND_API_KEY", "")
-            from_email = from_email or st.secrets.get("RESEND_FROM", "")
+            kljuc = st.secrets.get("BREVO_API_KEY", "")
         except Exception:
             pass
-    return api_key, from_email or "onboarding@resend.dev"
+    return kljuc
+
+
+def _brevo_posalji(kljuc, to_email, subject, html):
+    payload = json.dumps({
+        "sender": {"name": POSILJALAC_IME, "email": POSILJALAC_EMAIL},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "htmlContent": html,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email", data=payload, method="POST",
+        headers={"Content-Type": "application/json", "Accept": "application/json", "api-key": kljuc})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.status in (200, 201, 202)
 
 
 def posalji_email(to_email, subject, html):
-    """Generičko slanje jednog emaila preko Resend HTTP API-ja."""
+    """Generičko slanje jednog emaila. Vraća (uspjeh, poruka)."""
     try:
-        api_key, from_email = _resend_postavke()
-
-        if not api_key:
-            return False, "RESEND_API_KEY nije konfigurisan u secrets."
-
-        payload = json.dumps({
-            "from": from_email,
-            "to": [to_email],
-            "subject": subject,
-            "html": html,
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            "https://api.resend.com/emails",
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            if resp.status in (200, 201):
-                return True, "ok"
-            else:
-                return False, f"Resend status: {resp.status}"
+        kljuc = _brevo_kljuc()
+        if not kljuc:
+            return False, "BREVO_API_KEY nije podešen."
+        if _brevo_posalji(kljuc, to_email, subject, html):
+            return True, "ok"
+        return False, "Brevo nije prihvatio poruku."
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         zabiljezi_gresku(e)
-        return False, f"Resend HTTP {e.code}: {body}"
+        return False, f"Brevo HTTP {e.code}: {body[:300]}"
     except Exception as e:
         zabiljezi_gresku(e)
         return False, str(e)
@@ -115,7 +118,6 @@ def posalji_email_masovni(to_email, korisnik_ime, subject, poruka_tekst):
 # jedan pogrešan klik u adminu ne smije otići svim članovima. Svaki primalac
 # dobija svoj email — niko ne vidi tuđe adrese.
 KOMUNIKATOR_URL = "https://simulator.farmaceutupraksi.ba"
-RESEND_SKUPNO_MAX = 100  # Resend /emails/batch prima najviše 100 poruka
 
 
 def _esc(t):
@@ -161,30 +163,23 @@ def email_novi_slucaj(ime, sc, sid):
 def posalji_emailove_skupno(poruke):
     """poruke = [{"to", "subject", "html"}]. Vraća (poslano, greske).
 
-    Resend /emails/batch, po 100 u jednom pozivu. Pad jednog paketa ne zaustavlja
-    ostale — vraća se koliko je stvarno otišlo, da admin zna šta ponoviti.
+    Brevo, jedan poziv po primaocu — svako dobija svoj email i ne vidi tuđe
+    adrese. Pad jednog ne zaustavlja ostale; vraća se koliko je stvarno otišlo.
     """
-    api_key, from_email = _resend_postavke()
-    if not api_key:
-        return 0, ["RESEND_API_KEY nije podešen."]
+    kljuc = _brevo_kljuc()
+    if not kljuc:
+        return 0, ["BREVO_API_KEY nije podešen."]
     poslano, greske = 0, []
-    for i in range(0, len(poruke), RESEND_SKUPNO_MAX):
-        dio = poruke[i:i + RESEND_SKUPNO_MAX]
-        tijelo = json.dumps([{"from": from_email, "to": [p["to"]], "subject": p["subject"],
-                              "html": p["html"]} for p in dio]).encode("utf-8")
-        req = urllib.request.Request(
-            "https://api.resend.com/emails/batch", data=tijelo, method="POST",
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"})
+    for p in poruke:
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                if resp.status in (200, 201):
-                    poslano += len(dio)
-                else:
-                    greske.append(f"Resend status {resp.status}")
+            if _brevo_posalji(kljuc, p["to"], p["subject"], p["html"]):
+                poslano += 1
+            else:
+                greske.append(f"{p['to']}: Brevo nije prihvatio")
         except urllib.error.HTTPError as e:
             zabiljezi_gresku(e)
-            greske.append(f"Resend HTTP {e.code}: {e.read().decode('utf-8', errors='replace')[:200]}")
+            greske.append(f"{p['to']}: Brevo HTTP {e.code} {e.read().decode('utf-8', errors='replace')[:150]}")
         except Exception as e:
             zabiljezi_gresku(e)
-            greske.append(str(e)[:200])
+            greske.append(f"{p['to']}: {str(e)[:150]}")
     return poslano, greske

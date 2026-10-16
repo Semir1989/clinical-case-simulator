@@ -1,0 +1,17 @@
+# Šta NE ide u Cloud Build. Dockerfile ionako kopira samo popisane module,
+# ali ovo drži i sam upload malim i bez osjetljivih fajlova.
+.env
+.streamlit/
+venv/
+__pycache__/
+*.pyc
+scenario/
+kalibracija/
+arhiva/
+skripte/
+ui/
+PLAN-*
+NASTAVAK.*
+*.pdf
+*.html
+.git/

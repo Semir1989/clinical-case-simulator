@@ -5,9 +5,11 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
-COPY requirements.txt api/requirements.txt ./zavisnosti/
-RUN pip install --no-cache-dir -r zavisnosti/requirements.txt \
-    && pip install --no-cache-dir fastapi==0.118.0 uvicorn==0.37.0 PyJWT==2.10.1
+# Oba fajla se zovu requirements.txt — u istom folderu drugi bi prepisao prvi.
+# Zato idu pod svojim putanjama; api/requirements.txt poziva ../requirements.txt.
+COPY requirements.txt ./
+COPY api/requirements.txt ./api/
+RUN pip install --no-cache-dir -r api/requirements.txt
 
 # Samo moduli koje API stvarno uvozi — bez UI-ja, skripti, kalibracije i scenario/.
 COPY konfig.py baza.py posta.py promptovi.py motor.py ocjena.py rubrika.py \

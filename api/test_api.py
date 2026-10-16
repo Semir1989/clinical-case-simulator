@@ -141,6 +141,12 @@ r = klijent.post("/scenariji/test_1/pocni", headers=h)
 provjeri(r.json()["vraceno"] and r.json()["razgovor"]["broj_poteza"] == 2, "nastavak prekinutog razgovora")
 bez_tajni(r.text, "nastavak razgovora")
 
+print("Istek vremena")
+r = klijent.post("/scenariji/test_1/istek", headers=h)
+provjeri(r.status_code == 200 and "razgovor" in r.json() and r.json()["razgovor"]["broj_poteza"] == 2,
+         "istek prije roka ne ocjenjuje i ne mijenja razgovor")
+provjeri(len(NAPREDAK[("clan@test.ba", "test_1")]["poruke_prikaz"]) == 5, "istek ne upisuje poruku")
+
 print("Ocjena i jednokratnost")
 r = klijent.post("/scenariji/test_1/zavrsi", headers=h)
 j = r.json()
@@ -152,6 +158,17 @@ provjeri(j["epilog"] == "TAJNI_EPILOG", "epilog izlazi tek poslije ocjene")
 provjeri(klijent.post("/scenariji/test_1/pocni", headers=h).status_code == 409, "drugi pokušaj je odbijen")
 provjeri(klijent.post("/scenariji/test_1/poruka", headers=h, json={"tekst": "x"}).status_code == 409,
          "poruka poslije ocjene je odbijena")
+
+print("Istek svih unosa")
+m.SCENARIJI["test_2"] = SC
+klijent.post("/scenariji/test_2/pocni", headers=h)
+NAPREDAK[("clan@test.ba", "test_2")]["zadnji_potez_vrijeme"] = 1000.0     # davno
+r = klijent.post("/scenariji/test_2/istek", headers=h)
+provjeri(r.status_code == 200 and r.json().get("rezultat", {}).get("ocjena", {}).get("ukupno") == 4.6,
+         "istek svih unosa ocjenjuje i bez ijedne poruke")
+provjeri(not any(p["role"] == "user" for p in NAPREDAK.get(("clan@test.ba", "test_2"), {}).get("poruke_prikaz", [])),
+         "istek ne dodaje poruku farmaceuta")
+bez_tajni(json.dumps(r.json()).replace("TAJNI_EPILOG", "").replace("TAJNI_UZOR", ""), "rezultat isteka (bez epiloga)")
 
 print("Ljestvica")
 m.db_leaderboard = lambda p: [{"email": "tajni@mail.ba", "ime": "Farmaceut71", "ukupno": 9, "slucajeva": 2, "prosjek": 4.5}]

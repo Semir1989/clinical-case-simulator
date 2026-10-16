@@ -375,6 +375,34 @@ def zavrsi(sid: str, k=Depends(korisnik)):
     return javni_rezultat(rez, stanje.get("stanja"), sc)
 
 
+@app.post("/scenariji/{sid}/istek")
+def istek(sid: str, k=Depends(korisnik)):
+    """Telefon javlja da je, po njegovom satu, isteklo vrijeme za sve unose.
+
+    Sudi server: obračuna tajmer i ocjenjuje samo ako stvarno nema više unosa;
+    inače vraća trenutni razgovor. Ništa se ne upisuje u razgovor — ranije bi
+    telefon morao poslati lažnu poruku, a ona bi ušla u transkript kad god se
+    satovi razilaze.
+    """
+    sc = _aktivni_scenarij(sid)
+    email = k["email"]
+    postavi_aktivnog(email, sid)
+    if db_vec_uradio(email, sid):
+        raise HTTPException(409, "Ovaj slučaj je već ocijenjen.")
+    with _brava(email):
+        stanje = _ucitaj(email, sid)
+        if not stanje:
+            raise HTTPException(400, "Razgovor nije započet.")
+        primijeni_tajmer(stanje, MAX_POTEZA, time.time())
+        if stanje["broj_poteza"] < MAX_POTEZA:
+            db_spremi_napredak(email, sid, stanje, ISPIT)
+            return {"razgovor": javno_stanje(stanje, MAX_POTEZA)}
+        rez = _zavrsi(stanje, sc, sid, email)
+    if not rez:
+        raise HTTPException(502, "Ocjena nije uspjela. Razgovor je sačuvan — pokušajte ponovo.")
+    return {"rezultat": javni_rezultat(rez, stanje.get("stanja"), sc)}
+
+
 @app.get("/scenariji/{sid}/rezultat")
 def rezultat(sid: str, k=Depends(korisnik)):
     osvjezi_scenarije()

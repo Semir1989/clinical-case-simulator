@@ -8,7 +8,7 @@ ide kroz motor/baza/scenariji. Ovaj fajl radi samo četiri stvari:
   1. prijava i token, uz provjeru odobrenja, suspenzije i roka članarine na
      SVAKOM zahtjevu;
   2. razgovor potez po potez, sa stanjem u attempts_progress (kao Streamlit);
-  3. tajmer ispita na serveru, iz zadnji_potez_vrijeme;
+  3. granica unosa: broj poteza i dužina poruke (bez tajmera od 23.10.2026);
   4. propušta prema telefonu samo polja iz api/javno.py.
 
 Odluke 15.10.2026: svaki slučaj se igra jednom (ispit), vježba ostaje
@@ -41,8 +41,8 @@ from motor import ocijeni_razgovor, pozovi_pacijenta_stream, zatvori_razgovor
 from scenariji import SCENARIJI, osvjezi_scenarije
 
 from api.admin import napravi_ruter
-from api.javno import (TAJMER_SEKUNDI, clanarina_vazi, javna_ljestvica, javni_korisnik,
-                       javni_rezultat, javni_scenarij, javno_stanje, primijeni_tajmer)
+from api.javno import (MAX_ZNAKOVA, clanarina_vazi, javna_ljestvica, javni_korisnik,
+                       javni_rezultat, javni_scenarij, javno_stanje)
 
 # Tajna za potpis tokena. Bez nje API ne smije krenuti: zadana vrijednost bi
 # značila da svako može iskovati token za bilo koji email.
@@ -179,7 +179,7 @@ def scenariji(k=Depends(korisnik)):
              for sid, sc in SCENARIJI.items() if sc.get("aktivan", True)]
     # Nezavršeni prvi, kao u Streamlitu.
     lista.sort(key=lambda s: s["zavrsen"])
-    return {"scenariji": lista, "max_poteza": MAX_POTEZA, "sekundi_po_odgovoru": TAJMER_SEKUNDI}
+    return {"scenariji": lista, "max_poteza": MAX_POTEZA, "max_znakova": MAX_ZNAKOVA}
 
 
 def _ucitaj(email, sid):
@@ -198,8 +198,7 @@ def _ucitaj(email, sid):
 
 @app.post("/scenariji/{sid}/pocni")
 def pocni(sid: str, k=Depends(korisnik)):
-    """Otvara razgovor ili vraća prekinuti. Tajmer kreće iznova pri svakom ulasku,
-    kao u Streamlitu: vrijeme provedeno van aplikacije se ne računa."""
+    """Otvara razgovor ili vraća prekinuti."""
     sc = _aktivni_scenarij(sid)
     email = k["email"]
     postavi_aktivnog(email, sid)
@@ -299,8 +298,8 @@ def poruka(sid: str, p: Poruka, k=Depends(korisnik)):
     tekst = (p.tekst or "").strip()
     if not tekst:
         raise HTTPException(400, "Poruka je prazna.")
-    if len(tekst) > 2000:
-        raise HTTPException(400, "Poruka je preduga.")
+    if len(tekst) > MAX_ZNAKOVA:
+        raise HTTPException(400, f"Poruka je preduga — najviše {MAX_ZNAKOVA} znakova.")
     if db_vec_uradio(email, sid):
         raise HTTPException(409, "Ovaj slučaj ste već odigrali.")
     brava = _brava(email)
@@ -327,9 +326,9 @@ def poruka(sid: str, p: Poruka, k=Depends(korisnik)):
                     yield _sse("greska", {"poruka": "Dostigli ste dnevni limit poruka. Nastavite sutra."})
                 return
 
-            primijeni_tajmer(stanje, MAX_POTEZA, sad)
+            # Razgovor sačuvan dok je tajmer još jeo unose može već biti potrošen.
             if stanje["broj_poteza"] >= MAX_POTEZA:
-                yield _sse("info", {"poruka": "Vrijeme je isteklo za sve pokušaje. Razgovor se ocjenjuje."})
+                yield _sse("info", {"poruka": "Nema više unosa. Razgovor se ocjenjuje."})
                 rez = _zavrsi(stanje, sc, sid, email)
                 yield (_sse("rezultat", javni_rezultat(rez, stanje.get("stanja"), sc)) if rez
                        else _sse("greska", {"poruka": "Ocjena nije uspjela. Pokušajte završiti ponovo."}))
@@ -415,12 +414,11 @@ def zavrsi(sid: str, k=Depends(korisnik)):
 
 @app.post("/scenariji/{sid}/istek")
 def istek(sid: str, k=Depends(korisnik)):
-    """Telefon javlja da je, po njegovom satu, isteklo vrijeme za sve unose.
+    """Predaja razgovora bez preostalih unosa (i ponovni pokušaj kad ocjena padne).
 
-    Sudi server: obračuna tajmer i ocjenjuje samo ako stvarno nema više unosa;
-    inače vraća trenutni razgovor. Ništa se ne upisuje u razgovor — ranije bi
-    telefon morao poslati lažnu poruku, a ona bi ušla u transkript kad god se
-    satovi razilaze.
+    Ime je ostalo iz vremena tajmera, da stara verzija aplikacije u kešu telefona
+    i dalje radi. Ocjenjuje samo ako stvarno nema više unosa; inače vraća
+    trenutni razgovor. Ništa se ne upisuje u razgovor.
     """
     sc = _aktivni_scenarij(sid)
     email = k["email"]
@@ -431,7 +429,6 @@ def istek(sid: str, k=Depends(korisnik)):
         stanje = _ucitaj(email, sid)
         if not stanje:
             raise HTTPException(400, "Razgovor nije započet.")
-        primijeni_tajmer(stanje, MAX_POTEZA, time.time())
         if stanje["broj_poteza"] < MAX_POTEZA:
             db_spremi_napredak(email, sid, stanje, ISPIT)
             return {"razgovor": javno_stanje(stanje, MAX_POTEZA)}

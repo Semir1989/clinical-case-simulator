@@ -18,7 +18,7 @@ os.environ["KOMUNIKATOR_TAJNA"] = "test-tajna-samo-za-testove-0123456789"
 from fastapi.testclient import TestClient  # noqa: E402
 
 import api.main as m  # noqa: E402
-from api.javno import TAJMER_SEKUNDI, clanarina_vazi, primijeni_tajmer  # noqa: E402
+from api.javno import MAX_ZNAKOVA, clanarina_vazi  # noqa: E402
 
 TAJNE = ["TAJNA_CINJENICA", "TAJNI_OKIDAC", "TAJNA_RUBRIKA", "TAJNA_ZASTAVICA",
          "TAJNO_OCEKIVANO", "TAJNI_DETALJ", "TAJNI_OTPOR", "TAJNI_EPILOG", "TAJNI_UZOR",
@@ -116,14 +116,6 @@ for email in ("istekao@test.ba", "bezroka@test.ba", "neodobren@test.ba"):
     provjeri(klijent.get("/scenariji", headers=zaglavlje(email)).status_code == 403,
              f"{email} → 403 iako ima važeći token")
 
-print("Tajmer")
-s = {"broj_poteza": 1, "zadnji_potez_vrijeme": 1000.0}
-provjeri(primijeni_tajmer(s, 7, 1000.0 + 2 * TAJMER_SEKUNDI + 5) == 2 and s["broj_poteza"] == 3,
-         "dva istekla roka oduzimaju dva poteza")
-s = {"broj_poteza": 6, "zadnji_potez_vrijeme": 0.0}
-provjeri(primijeni_tajmer(s, 7, 10 * TAJMER_SEKUNDI) == 1 and s["broj_poteza"] == 7,
-         "ne oduzima više poteza nego što je ostalo")
-
 print("Razgovor bez curenja")
 h = zaglavlje("clan@test.ba")
 r = klijent.get("/scenariji", headers=h)
@@ -142,12 +134,22 @@ provjeri('"vrsta": "didaskalija"' in r.text, "didaskalija je izdvojena iz govora
 r = klijent.post("/scenariji/test_1/pocni", headers=h)
 provjeri(r.json()["vraceno"] and r.json()["razgovor"]["broj_poteza"] == 2, "nastavak prekinutog razgovora")
 bez_tajni(r.text, "nastavak razgovora")
+provjeri("sekundi_za_odgovor" not in r.text and r.json()["razgovor"]["max_znakova"] == MAX_ZNAKOVA,
+         "nema tajmera, telefon dobija granicu znakova")
 
-print("Istek vremena")
+print("Granica znakova")
+r = klijent.post("/scenariji/test_1/poruka", headers=h, json={"tekst": "č" * (MAX_ZNAKOVA + 1)})
+provjeri(r.status_code == 400, "poruka duža od granice je odbijena")
+provjeri(NAPREDAK[("clan@test.ba", "test_1")]["broj_poteza"] == 2, "odbijena poruka ne troši unos")
+NAPREDAK[("clan@test.ba", "test_1")]["zadnji_potez_vrijeme"] = 1000.0     # davno — sat se više ne broji
+r = klijent.post("/scenariji/test_1/pocni", headers=h)
+provjeri(r.json()["razgovor"]["broj_poteza"] == 2, "dugo čekanje više ne jede unose")
+
+print("Predaja prije kraja")
 r = klijent.post("/scenariji/test_1/istek", headers=h)
 provjeri(r.status_code == 200 and "razgovor" in r.json() and r.json()["razgovor"]["broj_poteza"] == 2,
-         "istek prije roka ne ocjenjuje i ne mijenja razgovor")
-provjeri(len(NAPREDAK[("clan@test.ba", "test_1")]["poruke_prikaz"]) == 5, "istek ne upisuje poruku")
+         "predaja s preostalim unosima ne ocjenjuje i ne mijenja razgovor")
+provjeri(len(NAPREDAK[("clan@test.ba", "test_1")]["poruke_prikaz"]) == 5, "predaja ne upisuje poruku")
 
 print("Ocjena i jednokratnost")
 r = klijent.post("/scenariji/test_1/zavrsi", headers=h)
@@ -162,13 +164,14 @@ provjeri(klijent.post("/scenariji/test_1/pocni", headers=h).status_code == 409, 
 provjeri(klijent.post("/scenariji/test_1/poruka", headers=h, json={"tekst": "x"}).status_code == 409,
          "poruka poslije ocjene je odbijena")
 
-print("Istek svih unosa")
+print("Predaja razgovora bez preostalih unosa")
 m.SCENARIJI["test_2"] = SC
 klijent.post("/scenariji/test_2/pocni", headers=h)
-NAPREDAK[("clan@test.ba", "test_2")]["zadnji_potez_vrijeme"] = 1000.0     # davno
+# Razgovor sačuvan dok je tajmer još jeo unose: svi potrošeni, nijedna poruka.
+NAPREDAK[("clan@test.ba", "test_2")]["broj_poteza"] = 7
 r = klijent.post("/scenariji/test_2/istek", headers=h)
 provjeri(r.status_code == 200 and r.json().get("rezultat", {}).get("ocjena", {}).get("ukupno") == 4.6,
-         "istek svih unosa ocjenjuje i bez ijedne poruke")
+         "potrošeni unosi se ocjenjuju i bez ijedne poruke")
 provjeri(not any(p["role"] == "user" for p in NAPREDAK.get(("clan@test.ba", "test_2"), {}).get("poruke_prikaz", [])),
          "istek ne dodaje poruku farmaceuta")
 bez_tajni(json.dumps(r.json()).replace("TAJNI_EPILOG", "").replace("TAJNI_UZOR", ""), "rezultat isteka (bez epiloga)")

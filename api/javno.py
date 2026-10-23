@@ -13,9 +13,12 @@ from datetime import date, datetime, timezone
 
 from stanje import ISHODI, krivulja_povjerenja, razdvoji_didaskalije, zadnji_ishod
 
-# Tajmer ispita: 120 s po odgovoru; istek oduzima jedan potez, ne briše razgovor.
-# Isti broj kao u app.py (TAJMER_SEKUNDI).
-TAJMER_SEKUNDI = 120
+# Granica dužine jedne poruke farmaceuta. Do 23.10.2026 dužinu je posredno držao
+# tajmer od 120 s po odgovoru, ali pod satom ljudi nisu stizali napisati ono što
+# misle, a istek je jeo unose (5 od 22 partije). Mjereno na 136 poruka: medijan
+# 116 znakova, 90% ispod 300, najduža 673 — 500 ne sputava skoro nikoga, a trošak
+# po partiji ostaje praktično isti, jer ga drži broj unosa (MAX_POTEZA).
+MAX_ZNAKOVA = 500
 
 
 # ─── Članarina ───────────────────────────────────────────────────────────────
@@ -75,46 +78,18 @@ def javna_replika(p):
             "komadi": [{"vrsta": v, "tekst": t} for v, t in razdvoji_didaskalije(p["content"])]}
 
 
-def javno_stanje(stanje, max_poteza, sad=None, tajmer=True):
+def javno_stanje(stanje, max_poteza):
     """Razgovor kakav polaznik smije vidjeti: replike i brojači, bez stanja pacijenta."""
-    sad = sad if sad is not None else datetime.now(timezone.utc).timestamp()
     broj = int(stanje.get("broj_poteza") or 0)
-    zadnji = stanje.get("zadnji_potez_vrijeme")
-    rok = None
-    if tajmer and isinstance(zadnji, (int, float)) and not stanje.get("zavrseno"):
-        proteklo = max(0.0, sad - zadnji)
-        rok = int(TAJMER_SEKUNDI - (proteklo % TAJMER_SEKUNDI))
     return {
         "replike": [javna_replika(p) for p in stanje.get("poruke_prikaz") or []],
         "broj_poteza": broj,
         "max_poteza": max_poteza,
         "preostalo": max(0, max_poteza - broj),
-        "izgubljeno_zbog_vremena": int(stanje.get("izgubljeno_ukupno") or 0),
-        "sekundi_za_odgovor": rok,
+        "max_znakova": MAX_ZNAKOVA,
         "zavrseno": bool(stanje.get("zavrseno")),
         "moze_zavrsiti": broj >= 2 and not stanje.get("zavrseno"),
     }
-
-
-def primijeni_tajmer(stanje, max_poteza, sad):
-    """Lijeno obračunava istekla vremena prije novog poteza — kao app.py.
-
-    Svakih punih TAJMER_SEKUNDI bez odgovora oduzima jedan potez. Vraća broj
-    upravo izgubljenih poteza. Mijenja stanje na mjestu.
-    """
-    zadnji = stanje.get("zadnji_potez_vrijeme")
-    if not isinstance(zadnji, (int, float)):
-        stanje["zadnji_potez_vrijeme"] = sad
-        return 0
-    preostalo = max_poteza - int(stanje.get("broj_poteza") or 0)
-    propusteni = int((sad - zadnji) // TAJMER_SEKUNDI)
-    if propusteni <= 0 or preostalo <= 0:
-        return 0
-    izgubljeno = min(propusteni, preostalo)
-    stanje["broj_poteza"] = int(stanje.get("broj_poteza") or 0) + izgubljeno
-    stanje["izgubljeno_ukupno"] = int(stanje.get("izgubljeno_ukupno") or 0) + izgubljeno
-    stanje["zadnji_potez_vrijeme"] = sad
-    return izgubljeno
 
 
 # ─── Rezultat ────────────────────────────────────────────────────────────────

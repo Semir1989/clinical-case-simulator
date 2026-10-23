@@ -90,14 +90,17 @@ def opisi_otpor(otpor):
         return ""
     redovi = []
     for o in sorted(otpor, key=lambda x: x.get("redoslijed", 99)):
-        r = ['- "' + o.get("replika", "") + '"']
+        # "smisao", ne replika u navodnicima: pod navodnicima ju je model lijepio
+        # doslovno, kao zaseban pasus, i kad nije pasala (revizija 23.10.2026).
+        r = ['- smisao: ' + o.get("replika", "")]
         if o.get("fatalno_ako_izda"):
             r.append("  OVAJ PRIGOVOR NE POPUŠTAŠ NIKAD, ma šta farmaceut rekao.")
         else:
             r.append("  popuštaš kad farmaceut " + o.get("uslov_popustanja", "objasni razlog")
                      + ", uz povjerenje najmanje " + str(o.get("prag_povjerenja", 5)))
         redovi.append("\n".join(r))
-    return ("\nTVOJI PRIGOVORI, redom kojim ih iznosiš — jedan po replici, ne svi odjednom:\n"
+    return ("\nTVOJI PRIGOVORI, redom kojim ih iznosiš — jedan po replici, ne svi odjednom, "
+            "uvijek svojim riječima (vidi OTPOR):\n"
             + "\n".join(redovi))
 
 
@@ -205,9 +208,11 @@ def pozovi_pacijenta_stream(poruke, sc, prethodno_stanje=None, na_dio=None):
 
 
 UPUTA_ZATVARANJE = (
-    "[UPUTA, nije replika farmaceuta] Razgovor se završava i farmaceut se oprostio. "
-    "Daj SAMO svoju posljednju repliku — kratku, u prvom licu — iz koje se jasno vidi šta ćeš "
-    "uraditi kad izađeš iz apoteke. U bloku stanja obavezno upiši fazu zatvaranje i ishod: "
+    "[UPUTA, nije replika farmaceuta] Razgovor se završava jer je farmaceut iskoristio svoje "
+    "poruke ili ga je sam završio. Daj SAMO svoju posljednju repliku — kratku, u prvom licu — "
+    "iz koje se jasno vidi šta ćeš uraditi kad izađeš iz apoteke. Oslanjaj se samo na ono što je "
+    "farmaceut stvarno rekao: ne pripisuj mu odbijanje, preporuku ni pozdrav kojih nije bilo. "
+    "U bloku stanja obavezno upiši fazu zatvaranje i ishod: "
     "prihvatio, prihvatio_nevoljko, odbio ili otisao_s_lijekom."
 )
 

@@ -122,6 +122,10 @@ def provjeri_rubriku(sc):
         for kr in kat["kriteriji"]:
             if len(kr["tekst"]) < 8:
                 greska(f"rubrika/{kr['id']}: opis '{kr['tekst']}' je prekratak da bi se sudio")
+            # "nije predlozio X(2)" nagrađuje nerad — revizija 23.10.2026, SCENARIJ-V2 pravilo 5.
+            if rubrika._PROPUST.match(kr["tekst"].strip()):
+                greska(f"rubrika/{kr['id']}: kriterij '{kr['tekst']}' je izostanak — boduje onoga ko "
+                       f"nista ne uradi; napisi radnju, a zabranu prebaci u KAZNU")
 
     kazne = [kz for kat in rub["kategorije"] for kz in kat["kazne"]]
     if not kazne:
@@ -130,6 +134,16 @@ def provjeri_rubriku(sc):
         if kz.get("rucna_provjera"):
             greska(f"kazna '{kz['opis']}' se ne veze ni za jedan kriterij, pa se nikad "
                    f"nece upaliti; prepisi je rijecima iz kriterija na koji se odnosi")
+
+        # Kazna ne gori kad je vezani kriterij priznat. Namjerno je da "izdao X" gasi
+        # "odbio X", ali kriterij koji samo dijeli rijeci ("…bez kortikosteroida")
+        # ugasio bi fatalnu gresku (SCENARIJ-V2 pravilo 6) — to parser ne razlikuje.
+        if kz.get("vrsta") == "radnja" and kz.get("vezano_za"):
+            imena = {kr["id"]: kr["tekst"] for kat in rub["kategorije"] for kr in kat["kriteriji"]}
+            upozori(f"kazna '{kz['opis']}' se gasi kad je priznat: "
+                    + "; ".join(f"{v} '{imena.get(v, '?')}'" for v in kz["vezano_za"])
+                    + " — provjeri da je to suprotnost kazne (odbio ↔ izdao), a ne kriterij "
+                      "koji samo dijeli rijeci")
 
     fatalna = [kz for kz in kazne if kz["max"] == 0]
     if not fatalna:

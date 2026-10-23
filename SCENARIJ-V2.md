@@ -124,6 +124,18 @@ Pravila koja parser i bodovanje traže:
 4. **Kazna mora spominjati riječi iz kriterija na koji se odnosi.** Ako ne
    spominje, ostaje nevezana i nikad se ne pali — radije propuštena kazna nego
    lažna optužba. Provjeri to poslije generisanja (vidi ispod).
+5. **Kriterij je radnja koju farmaceut URADI, nikad izostanak.** „nije
+   predlozio zamjensku terapiju" daje bodove onome ko ništa ne uradi, a kažnjava
+   onoga ko ponudi bezbjednu pomoć (u scenariju 1 tako je 8 od 13 farmaceuta
+   izgubilo bodove jer su ponudili emolijens — revizija 23.10.2026). Ono što je
+   zabranjeno ide u KAZNU; kriterij opisuje šta je ispravno ponuditi ili reći
+   („do pregleda ponudio samo blagu njegu koze bez hormona").
+6. **Kazna-radnja se gasi samo svojom suprotnošću.** Kazna ne gori ako je
+   ijedan kriterij za koji je vezana priznat. Namjerno je da „izdao X" gasi
+   „odbio X" (vidi `ISPRAVKE_VEZA` u `rubrika.py`), ali kriterij koji s kaznom
+   samo dijeli riječi — „…bez kortikosteroida" uz „dao kortikosteroid
+   trudnici" — ugasio bi fatalnu grešku čim farmaceut uz Clobetasol ponudi i
+   emolijens. Brana ispisuje svaku takvu vezu kao upozorenje za ručnu provjeru.
 
 ### Epilog (F6)
 

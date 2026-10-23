@@ -278,9 +278,16 @@ def izracunaj(rubrika, ocjene, radnje=None):
 
 
 def _kazna_gori(kazna, ocjene, radnje):
-    """Nijedna kazna ne gori ako je ijedan kriterij koji spominje priznat."""
+    """Nijedna kazna ne gori ako je ijedan kriterij koji spominje priznat.
+
+    Fatalnu radnju (max 0) gasi samo puni DA. DJELIMICNO na "odbio izdati X"
+    znači da je farmaceut odbio pa popustio — upravo ono što fatalna kazna
+    kažnjava (Semirova odluka 23.10.2026). Ostale kazne gasi i DJELIMICNO.
+    """
     vezani = kazna.get("vezano_za") or []
-    priznat = any((ocjene.get(kid) or {}).get("status", "NE") != "NE" for kid in vezani)
+    fatalna = kazna.get("vrsta") == "radnja" and kazna.get("max") == 0
+    gasi = ("DA",) if fatalna else ("DA", "DJELIMICNO")
+    priznat = any((ocjene.get(kid) or {}).get("status", "NE") in gasi for kid in vezani)
     if priznat:
         return False
     if kazna.get("vrsta") == "radnja":

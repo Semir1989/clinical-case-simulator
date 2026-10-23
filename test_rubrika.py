@@ -117,6 +117,13 @@ provjeri("prijavljena radnja obara sigurnost na 0",
 provjeri("priznat kriterij pretegne nad prijavljenom radnjom",
          rubrika.izracunaj(r1, sve(r1, "DA"), radnje=["sigurnost_kazna_1"])["sigurnost"] == 10.0)
 
+odbio_pa_popustio = dict(sve(r1, "DA"))
+odbio_pa_popustio["sigurnost_1"] = {"status": "DJELIMICNO"}
+provjeri("DJELIMICNO odbijanje ne gasi fatalnu radnju",
+         rubrika.izracunaj(r1, odbio_pa_popustio, radnje=["sigurnost_kazna_1"])["sigurnost"] == 0.0)
+provjeri("bez prijave radnje DJELIMICNO odbijanje samo gubi pola bodova",
+         rubrika.izracunaj(r1, odbio_pa_popustio)["kazne_primijenjene"] == [])
+
 provjeri("rucna ispravka veze se primjenjuje",
          r1["kategorije"][2]["kazne"][0]["vezano_za"] == ["sigurnost_1"])
 
